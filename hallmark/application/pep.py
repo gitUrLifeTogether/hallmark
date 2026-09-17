@@ -11,6 +11,7 @@ component whose job is to stand between a model and a bank transfer.
 
 from __future__ import annotations
 
+import logging
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -75,6 +76,8 @@ REASON_PRECEDENCE: tuple[str, ...] = (
     "pay-vendor-match-required",
     "pay-above-auto-limit-needs-human",
 )
+
+logger = logging.getLogger(__name__)
 
 SUGGESTED_AFTER_PAYMENT_DENIAL: tuple[str, ...] = (
     "open_bank_change_review",
@@ -171,6 +174,22 @@ class PolicyEnforcementPoint:
         self._emit(run, decision_id, tool, args, decision, outcome, reason)
         return decision_id
 
+    def _publish(self, event: DomainEvent) -> None:
+        """Announce an event, and never let that failure reach the decision path.
+
+        Telemetry is not part of the guarantee. Letting a publisher's exception escape
+        would be worse than losing the event: in the executed path the ledger has already
+        been written, so the caller would see a raise after the money moved and might
+        reasonably retry, paying twice. Failing closed governs decisions; announcing them
+        fails quietly.
+        """
+        try:
+            self._events.publish(event)
+        except Exception:
+            logger.warning(
+                "event publish failed", extra={"eventType": str(event.type)}, exc_info=False
+            )
+
     def _emit(
         self,
         run: RunContext,
@@ -193,7 +212,7 @@ class PolicyEnforcementPoint:
         }
         at = self._clock.now_iso()
 
-        self._events.publish(
+        self._publish(
             DomainEvent(
                 type=EventType.POLICY_EVALUATED,
                 run_id=run.run_id,
@@ -215,7 +234,7 @@ class PolicyEnforcementPoint:
                 },
             )
         )
-        self._events.publish(
+        self._publish(
             DomainEvent(
                 type=outcome_events[outcome],
                 run_id=run.run_id,

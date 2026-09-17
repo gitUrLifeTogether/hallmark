@@ -153,50 +153,55 @@ export function SplitReplay() {
         </div>
       </div>
 
-      <table
-        style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}
-      >
-        <thead>
-          <tr
-            style={{ textAlign: "left", color: "var(--ink-3)", fontSize: 12 }}
-          >
-            <th style={{ padding: "6px 8px", fontWeight: 600 }}>Email</th>
-            <th style={{ padding: "6px 8px", fontWeight: 600 }}>Unprotected</th>
-            <th style={{ padding: "6px 8px", fontWeight: 600 }}>
-              With Hallmark
-            </th>
-          </tr>
-        </thead>
-        <tbody>
-          {visible.map((row: ComparisonRow) => (
+      {/* A narrow screen scrolls the table rather than the page. */}
+      <div style={{ overflowX: "auto" }}>
+        <table
+          style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}
+        >
+          <thead>
             <tr
-              key={row.emailId}
-              style={{ borderTop: "1px solid var(--rule)" }}
+              style={{ textAlign: "left", color: "var(--ink-3)", fontSize: 12 }}
             >
-              <td
-                style={{
-                  padding: "8px",
-                  verticalAlign: "top",
-                  whiteSpace: "nowrap",
-                }}
-              >
-                <code className="mono" style={{ fontSize: 12 }}>
-                  {row.emailId}
-                </code>
-                <div style={{ fontSize: 11, color: "var(--ink-3)" }}>
-                  {row.label}
-                </div>
-              </td>
-              <td style={{ padding: "8px", verticalAlign: "top" }}>
-                <Cell {...row.unprotected} />
-              </td>
-              <td style={{ padding: "8px", verticalAlign: "top" }}>
-                <Cell {...row.protectedRun} />
-              </td>
+              <th style={{ padding: "6px 8px", fontWeight: 600 }}>Email</th>
+              <th style={{ padding: "6px 8px", fontWeight: 600 }}>
+                Unprotected
+              </th>
+              <th style={{ padding: "6px 8px", fontWeight: 600 }}>
+                With Hallmark
+              </th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {visible.map((row: ComparisonRow) => (
+              <tr
+                key={row.emailId}
+                style={{ borderTop: "1px solid var(--rule)" }}
+              >
+                <td
+                  style={{
+                    padding: "8px",
+                    verticalAlign: "top",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  <code className="mono" style={{ fontSize: 12 }}>
+                    {row.emailId}
+                  </code>
+                  <div style={{ fontSize: 11, color: "var(--ink-3)" }}>
+                    {row.label}
+                  </div>
+                </td>
+                <td style={{ padding: "8px", verticalAlign: "top" }}>
+                  <Cell {...row.unprotected} />
+                </td>
+                <td style={{ padding: "8px", verticalAlign: "top" }}>
+                  <Cell {...row.protectedRun} />
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
 
       <p style={{ margin: 0, fontSize: 13, color: "var(--ink-3)" }}>
         Both columns are recorded outcomes from deterministic runs over the same

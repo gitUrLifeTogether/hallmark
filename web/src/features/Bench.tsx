@@ -105,52 +105,59 @@ export function Bench() {
       {[...byClass.entries()].map(([label, rows]) => (
         <div key={label} style={{ display: "grid", gap: 6 }}>
           <strong style={{ fontSize: 14 }}>{label}</strong>
-          <table
-            style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}
-          >
-            <thead>
-              <tr
-                style={{
-                  textAlign: "left",
-                  color: "var(--ink-3)",
-                  fontSize: 11,
-                }}
-              >
-                <th style={{ padding: "4px 8px", fontWeight: 600 }}>
-                  Scenario
-                </th>
-                <th style={{ padding: "4px 8px", fontWeight: 600 }}>
-                  Unprotected
-                </th>
-                <th style={{ padding: "4px 8px", fontWeight: 600 }}>
-                  With Hallmark
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row) => (
+          {/* A narrow screen scrolls the table rather than the page. */}
+          <div style={{ overflowX: "auto" }}>
+            <table
+              style={{
+                width: "100%",
+                borderCollapse: "collapse",
+                fontSize: 13,
+              }}
+            >
+              <thead>
                 <tr
-                  key={row.scenarioId}
-                  style={{ borderTop: "1px solid var(--rule)" }}
+                  style={{
+                    textAlign: "left",
+                    color: "var(--ink-3)",
+                    fontSize: 11,
+                  }}
                 >
-                  <td style={{ padding: "8px", verticalAlign: "top" }}>
-                    <code className="mono" style={{ fontSize: 12 }}>
-                      {row.scenarioId}
-                    </code>
-                    <div style={{ fontSize: 11, color: "var(--ink-3)" }}>
-                      {row.description}
-                    </div>
-                  </td>
-                  <td style={{ padding: "8px", verticalAlign: "top" }}>
-                    <Outcome succeeded={row.baselineSucceeded} />
-                  </td>
-                  <td style={{ padding: "8px", verticalAlign: "top" }}>
-                    <Outcome succeeded={row.hallmarkSucceeded} />
-                  </td>
+                  <th style={{ padding: "4px 8px", fontWeight: 600 }}>
+                    Scenario
+                  </th>
+                  <th style={{ padding: "4px 8px", fontWeight: 600 }}>
+                    Unprotected
+                  </th>
+                  <th style={{ padding: "4px 8px", fontWeight: 600 }}>
+                    With Hallmark
+                  </th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {rows.map((row) => (
+                  <tr
+                    key={row.scenarioId}
+                    style={{ borderTop: "1px solid var(--rule)" }}
+                  >
+                    <td style={{ padding: "8px", verticalAlign: "top" }}>
+                      <code className="mono" style={{ fontSize: 12 }}>
+                        {row.scenarioId}
+                      </code>
+                      <div style={{ fontSize: 11, color: "var(--ink-3)" }}>
+                        {row.description}
+                      </div>
+                    </td>
+                    <td style={{ padding: "8px", verticalAlign: "top" }}>
+                      <Outcome succeeded={row.baselineSucceeded} />
+                    </td>
+                    <td style={{ padding: "8px", verticalAlign: "top" }}>
+                      <Outcome succeeded={row.hallmarkSucceeded} />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       ))}
 

@@ -87,47 +87,50 @@ export function DecisionCard({
         <VerdictStamp outcome={decision.outcome} />
       </header>
 
-      <table
-        style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}
-      >
-        <caption
-          style={{
-            captionSide: "top",
-            textAlign: "left",
-            fontSize: 12,
-            color: "var(--ink-2)",
-            paddingBottom: 6,
-          }}
+      {/* A narrow screen scrolls the table rather than the page. */}
+      <div style={{ overflowX: "auto" }}>
+        <table
+          style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}
         >
-          Arguments, and where each one came from
-        </caption>
-        <thead>
-          <tr
-            style={{ textAlign: "left", color: "var(--ink-3)", fontSize: 12 }}
+          <caption
+            style={{
+              captionSide: "top",
+              textAlign: "left",
+              fontSize: 12,
+              color: "var(--ink-2)",
+              paddingBottom: 6,
+            }}
           >
-            <th style={{ padding: "4px 0", fontWeight: 600 }}>Argument</th>
-            <th style={{ padding: "4px 0", fontWeight: 600 }}>Value</th>
-            <th style={{ padding: "4px 0", fontWeight: 600 }}>Provenance</th>
-          </tr>
-        </thead>
-        <tbody>
-          {entries.map(([name, value]) => (
-            <tr key={name} style={{ borderTop: "1px solid var(--rule)" }}>
-              <td style={{ padding: "8px 0", color: "var(--ink-2)" }}>
-                {name}
-              </td>
-              <td style={{ padding: "8px 0" }}>
-                <code className="mono tabular">
-                  {value.display ?? value.handle}
-                </code>
-              </td>
-              <td style={{ padding: "8px 0" }}>
-                <ProvenanceTag sources={value.sources} />
-              </td>
+            Arguments, and where each one came from
+          </caption>
+          <thead>
+            <tr
+              style={{ textAlign: "left", color: "var(--ink-3)", fontSize: 12 }}
+            >
+              <th style={{ padding: "4px 0", fontWeight: 600 }}>Argument</th>
+              <th style={{ padding: "4px 0", fontWeight: 600 }}>Value</th>
+              <th style={{ padding: "4px 0", fontWeight: 600 }}>Provenance</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {entries.map(([name, value]) => (
+              <tr key={name} style={{ borderTop: "1px solid var(--rule)" }}>
+                <td style={{ padding: "8px 0", color: "var(--ink-2)" }}>
+                  {name}
+                </td>
+                <td style={{ padding: "8px 0" }}>
+                  <code className="mono tabular">
+                    {value.display ?? value.handle}
+                  </code>
+                </td>
+                <td style={{ padding: "8px 0" }}>
+                  <ProvenanceTag sources={value.sources} />
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
 
       <div style={{ display: "grid", gap: 6 }}>
         <span style={{ fontSize: 12, color: "var(--ink-2)" }}>

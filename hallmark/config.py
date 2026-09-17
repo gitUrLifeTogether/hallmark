@@ -30,11 +30,29 @@ DEFAULT_ENDPOINT_URL: Final = "http://localhost:4566"
 DEFAULT_OLLAMA_HOST: Final = "http://localhost:11434"
 
 
+TRUTHY: Final[frozenset[str]] = frozenset({"1", "true", "yes", "on"})
+FALSEY: Final[frozenset[str]] = frozenset({"0", "false", "no", "off"})
+
+
 def _env_bool(env: Mapping[str, str], key: str, default: bool) -> bool:
     raw = env.get(key)
     if raw is None or raw == "":
         return default
-    return raw.strip().lower() in {"1", "true", "yes", "on"}
+    return raw.strip().lower() in TRUTHY
+
+
+def _env_safety_switch(env: Mapping[str, str], key: str) -> bool:
+    """Read a switch that protects something, defaulting to on.
+
+    Distinct from an ordinary boolean because the failure modes are not symmetrical. A
+    plain flag can treat anything it does not recognise as false; a guard must not, or a
+    typo like `ture` silently disables it and everything still appears to work. Only an
+    explicit, recognised off value turns this off.
+    """
+    raw = env.get(key)
+    if raw is None or raw.strip() == "":
+        return True
+    return raw.strip().lower() not in FALSEY
 
 
 @dataclass(frozen=True)
@@ -59,7 +77,7 @@ class Settings:
         """Build settings from the environment, defaulting to the local Build It stack."""
         e: Mapping[str, str] = os.environ if env is None else env
         return cls(
-            local_only=_env_bool(e, "LOCAL_ONLY", True),
+            local_only=_env_safety_switch(e, "LOCAL_ONLY"),
             aws_endpoint_url=e.get("AWS_ENDPOINT_URL") or None,
             aws_region=e.get("AWS_DEFAULT_REGION") or DEFAULT_REGION,
             ollama_host=e.get("OLLAMA_HOST") or DEFAULT_OLLAMA_HOST,
