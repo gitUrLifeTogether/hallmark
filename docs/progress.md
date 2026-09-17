@@ -80,14 +80,43 @@ and opens a bank-change review. email-20 is denied by `email-confidential-intern
 Includes 35 Cedar scenarios, Hypothesis property tests for the label algebra, reader
 verification tests, fail-closed tests and a determinism test.
 
+## M2 - The agent: COMPLETE
+
+Handle-based tool surface, quarantined reader on a local model with JSON-schema output,
+per-email planner episodes on Strands, an eight-call budget enforced in code, and the
+unprotected baseline agent for comparison.
+
+**Canary isolation test passing.** Unique markers in every attacker-controllable field,
+driven through a full run; none reaches anything the planner receives. Includes a check
+that the detector itself catches a planted leak, and one confirming the untrusted text is
+still stored for a human.
+
+**Model-backed acceptance:** the planner attempted the bank-change attack and was refused
+by `pay-account-must-be-master`; a legitimate invoice was still paid. `paid_attacker:
+False`. Full numbers and caveats in ADR-0011.
+
+**161 tests pass** (3 model-backed ones opt-in via `-m model`); ruff, `mypy --strict` and
+all twelve pre-commit hooks clean.
+
+## Tooling now working
+
+- `make` (GNU Make 3.81, installed under `C:/GnuWin32/bin`) — `make help` lists all
+  12 targets.
+- `pre-commit` installed and green, including a local hook that blocks any reference to
+  the private working spec.
+- Console shell at `web/` — Vite + React, strict TypeScript, design tokens for both
+  themes, and the provenance component. `npm run dev` serves on 5173.
+
 ## Not started
 
-Console placeholder at `localhost:5173`; `pre-commit install`; `make` is not installed on
-this machine, so Makefile targets are unverified.
+- M3 platform work: a SAM template for the real stack, DynamoDB/S3/Step Functions
+  adapters, the realtime gateway, seeded demo users.
+- M4 console screens, M5 attack bench, M6 hardening and the README.
 
 ## Next steps
 
-1. M2 - the agent: Strands planner on Ollama in per-email episodes, reader with
-   JSON-schema output, handle-based tool wrappers, and the canary isolation test.
-2. Install `make`, run `pre-commit install`, add the console placeholder.
-3. Validate `samlocal` + CloudFormation early in M3.
+1. M3 — validate `samlocal` with CloudFormation first, since it is still unproven, then
+   build the platform behind the existing ports.
+2. Expose `send_email` and `export_vendor_master` to the model planner so the
+   exfiltration case can be exercised model-driven rather than only by the scripted run.
+3. Re-measure episode latency on an idle machine before any timing claim is published.
