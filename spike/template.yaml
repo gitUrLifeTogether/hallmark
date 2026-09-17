@@ -1,0 +1,129 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  M0 feasibility spike (CLAUDE.md §18 M0). Throwaway stack that proves the five
+  Build It assumptions on LocalStack. Not part of the product stack.
+
+Globals:
+  Function:
+    Runtime: python3.12
+    Timeout: 120
+    MemorySize: 512
+    Environment:
+      Variables:
+        SPIKE_TABLE: !Ref SpikeTable
+        OLLAMA_HOST: http://host.docker.internal:11434
+        READER_MODEL: qwen3:1.7b
+
+Resources:
+  # --- Check 3: DynamoDB -----------------------------------------------------
+  SpikeTable:
+    Type: AWS::Serverless::SimpleTable
+    Properties:
+      TableName: hallmark-spike
+      PrimaryKey:
+        Name: pk
+        Type: String
+
+  # --- Check 1 + 3: cedarpy inside Lambda, then a DynamoDB write --------------
+  CedarFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: hallmark-spike-cedar
+      CodeUri: functions/cedar_fn/
+      Handler: app.handler
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref SpikeTable
+
+  # --- Check 2: Lambda -> Ollama on the host through Strands ------------------
+  OllamaFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: hallmark-spike-ollama
+      CodeUri: functions/ollama_fn/
+      Handler: app.handler
+      Timeout: 300
+
+  # --- Check 4: Step Functions waitForTaskToken -------------------------------
+  TaskTokenFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: hallmark-spike-tasktoken
+      CodeUri: functions/tasktoken_fn/
+      Handler: app.handler
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref SpikeTable
+
+  CallbackFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: hallmark-spike-callback
+      CodeUri: functions/callback_fn/
+      Handler: app.handler
+      Policies:
+        - Statement:
+            Effect: Allow
+            Action:
+              - states:SendTaskSuccess
+              - states:SendTaskFailure
+              - dynamodb:GetItem
+              - dynamodb:Scan
+            Resource: "*"
+
+  ApprovalStateMachine:
+    Type: AWS::Serverless::StateMachine
+    Properties:
+      Name: hallmark-spike-approval
+      DefinitionUri: statemachine.asl.json
+      DefinitionSubstitutions:
+        TaskTokenFunctionArn: !GetAtt TaskTokenFunction.Arn
+      Policies:
+        - LambdaInvokePolicy:
+            FunctionName: !Ref TaskTokenFunction
+        - Statement:
+            Effect: Allow
+            Action: [states:SendTaskSuccess, states:SendTaskFailure]
+            Resource: "*"
+
+  # --- Check 5: EventBridge -> SQS --------------------------------------------
+  ConsoleEventsQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: console-events
+
+  HallmarkBus:
+    Type: AWS::Events::EventBus
+    Properties:
+      Name: hallmark
+
+  ConsoleEventsRule:
+    Type: AWS::Events::Rule
+    Properties:
+      EventBusName: !Ref HallmarkBus
+      EventPattern:
+        source: ["hallmark"]
+      Targets:
+        - Arn: !GetAtt ConsoleEventsQueue.Arn
+          Id: console-events
+
+  ConsoleEventsQueuePolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues: [!Ref ConsoleEventsQueue]
+      PolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: events.amazonaws.com
+            Action: sqs:SendMessage
+            Resource: !GetAtt ConsoleEventsQueue.Arn
+
+Outputs:
+  TableName:
+    Value: !Ref SpikeTable
+  QueueUrl:
+    Value: !Ref ConsoleEventsQueue
+  StateMachineArn:
+    Value: !Ref ApprovalStateMachine

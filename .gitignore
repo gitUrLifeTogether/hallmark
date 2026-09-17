@@ -19,6 +19,9 @@ dist/
 cdk.out/
 samconfig.local.toml
 
+# LocalStack runtime volume (certs, machine id, emulator state)
+.localstack/
+
 # Secrets / env
 .env
 .env.*
