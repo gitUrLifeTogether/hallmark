@@ -1,10 +1,9 @@
-"""Typed settings from the environment, plus the LOCAL_ONLY guard (CLAUDE.md §0.0.1.4).
+"""Typed settings from the environment, plus the LOCAL_ONLY guard.
 
-Hallmark competes in the hackathon's Build It track: nothing may ever touch real AWS.
-That rule is enforced in three places — this module, the `Makefile` targets, and the
-absence of any real credentials. This module is the code-level half: no boto3 client is
-constructed anywhere in the codebase except through `local_boto3_client`, which refuses
-any endpoint that is not a local emulator.
+Nothing in this project may ever touch real AWS. That rule is enforced in three places:
+this module, the `Makefile` targets, and the absence of any real credentials. This module
+is the code-level half — no boto3 client is constructed anywhere in the codebase except
+through `local_boto3_client`, which refuses any endpoint that is not a local emulator.
 """
 
 from __future__ import annotations
@@ -42,7 +41,7 @@ def _env_bool(env: Mapping[str, str], key: str, default: bool) -> bool:
 class Settings:
     """Process configuration, read once at the composition root.
 
-    No value here is ever hardcoded elsewhere in the codebase (CLAUDE.md §0.6).
+    No model id, region, endpoint or secret is hardcoded anywhere else in the codebase.
     """
 
     local_only: bool
@@ -110,8 +109,8 @@ def local_boto3_client(
 ) -> Any:
     """Create a boto3 client, refusing any endpoint that is not a local emulator.
 
-    This is the only place in the codebase that constructs AWS clients (CLAUDE.md
-    §0.2.2.4). `client_factory` exists so tests can assert the guard without boto3.
+    This is the only place in the codebase that constructs AWS clients.
+    `client_factory` exists so tests can assert the guard without boto3.
     """
     cfg = Settings.from_env() if settings is None else settings
     assert_local_endpoint(cfg.aws_endpoint_url, local_only=cfg.local_only)

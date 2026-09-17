@@ -1,6 +1,6 @@
 """Spike check 4b: a second Lambda resumes the paused execution via SendTaskSuccess.
 
-This is the approver's side of the real ApprovalWorkflow (CLAUDE.md §11.2).
+This is the approver's side of the real approval workflow.
 """
 
 import json

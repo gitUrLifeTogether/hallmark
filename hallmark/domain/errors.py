@@ -1,4 +1,4 @@
-"""Typed error hierarchy (CLAUDE.md §0.2.2.7).
+"""Typed error hierarchy.
 
 Mapped to `reason_code` enums and HTTP status codes only at boundaries. Never leak
 stack traces or untrusted text through these to the planner or to API clients.

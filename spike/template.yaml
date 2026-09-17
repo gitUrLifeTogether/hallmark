@@ -1,7 +1,7 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Transform: AWS::Serverless-2016-10-31
 Description: >
-  M0 feasibility spike (CLAUDE.md §18 M0). Throwaway stack that proves the five
+  Feasibility spike. Throwaway stack that proves the five
   Build It assumptions on LocalStack. Not part of the product stack.
 
 Globals:

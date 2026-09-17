@@ -14,12 +14,18 @@ repos:
         args: [--fix]
       - id: ruff-format
 
-  - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v1.14.1
+  # mypy runs in the project environment rather than an isolated one. The mirrored hook
+  # builds its own venv from `additional_dependencies`, which cannot see Strands or boto3
+  # and so reports every typed decorator as untyped. Listing deps twice would drift from
+  # pyproject.toml, so the hook and `make lint` share one environment and one result.
+  - repo: local
     hooks:
       - id: mypy
-        files: ^hallmark/
-        additional_dependencies: [pydantic>=2]
+        name: mypy (project environment)
+        entry: uv run mypy hallmark
+        language: system
+        types: [python]
+        pass_filenames: false
 
   - repo: https://github.com/pre-commit/mirrors-prettier
     rev: v4.0.0-alpha.8
@@ -34,7 +40,22 @@ repos:
       - id: end-of-file-fixer
       - id: trailing-whitespace
       - id: check-yaml
+        # CloudFormation templates use intrinsic tags (!Ref, !Sub) that a plain YAML
+        # parser cannot construct. They are validated by `sam validate` instead.
+        exclude: ^(template\.yaml|spike/template\.yaml)$
       - id: check-json
       - id: check-added-large-files
         args: [--maxkb=5000]
       - id: check-merge-conflict
+
+  - repo: local
+    hooks:
+      # The working spec is a private document. It must never reach the repository --
+      # not the file, not its name, not a path to it, and not a reference implying an
+      # external spec that a reader of this repo cannot open. Design decisions belong
+      # inline in docs/hld.md, docs/lld.md or docs/decisions.md instead.
+      - id: no-private-spec-references
+        name: no references to the private working spec
+        entry: python scripts/check_no_spec_references.py
+        language: system
+        pass_filenames: true

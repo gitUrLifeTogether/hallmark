@@ -3,17 +3,17 @@
 A fresh session should read this file plus `git log --oneline -20` before re-reading the
 whole repo.
 
-## Track: Build It (CLAUDE.md §0.0) — nothing touches real AWS
+## Everything runs locally — nothing touches real AWS
 
 Local stack: Strands + Ollama, Cedar via `cedarpy` in-process, SAM + LocalStack.
 See ADR-0003. Bedrock / Verified Permissions / Cognito / Amplify are **not provisioned**.
 
-## §0.1 Repository and Git workflow
+## Repository and git workflow
 
 - Repo already existed on GitHub (`gitUrLifeTogether/hallmark`) and was already cloned to
-  `~/Desktop/hallmark` — **done**, steps 4–5 of §0.1.1 skipped, do not re-create it.
+  `~/Desktop/hallmark` — **done**. Do not re-create it.
 - Scaffolding + first commit (`chore: scaffold repository`) — **done**. Nothing pushed yet;
-  pushing always requires asking first (§0.1.3).
+  pushing always requires asking first, every time.
 
 ## M0 — Toolchain, spike & skeleton
 
@@ -36,7 +36,7 @@ Cedar CLI intentionally skipped (needs Rust; `cedarpy` validates schemas in-proc
   Full results, pass and fail, in ADR-0005.
 
 **✅ SPIKE COMPLETE — all five checks PASS. Go/no-go: GO on LocalStack.**
-The §0.0.6 fallback is **not** needed. Checks 1b (cedarpy in a Lambda container), 4 (Step
+The lighter fallback stack is **not** needed. Checks 1b (cedarpy in a Lambda container), 4 (Step
 Functions `waitForTaskToken` end-to-end) and 2 (Lambda→Ollama via `host.docker.internal`)
 all pass; full evidence and free-RAM readings in ADR-0005.
 `OLLAMA_KEEP_ALIVE=0` + `OLLAMA_MAX_LOADED_MODELS=1` set for headroom (ADR-0007).
@@ -48,7 +48,7 @@ all pass; full evidence and free-RAM readings in ADR-0005.
   `urllib`, proving the network path only).
 
 **Not started:** console placeholder at `localhost:5173`; `pre-commit install`;
-full §17 directory skeleton.
+the full directory skeleton.
 
 ## Gotchas that will bite again
 

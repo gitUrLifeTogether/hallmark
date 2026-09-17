@@ -11,7 +11,7 @@ from typing import Any
 import boto3
 import cedarpy
 
-# The two policies that carry Hallmark's core guarantee (CLAUDE.md §10.2).
+# The two policies that carry Hallmark's core guarantee.
 POLICIES = """
 @id("pay-permit-within-mandate")
 permit(principal, action == Action::"pay_vendor", resource)

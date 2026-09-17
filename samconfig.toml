@@ -6,4 +6,4 @@ resolve_s3 = true
 capabilities = "CAPABILITY_IAM"
 confirm_changeset = true
 # region is intentionally not set here — pass with `sam deploy --region <region>`
-# or set AWS_REGION in the environment, per CLAUDE.md §0.6 (no hardcoded regions).
+# or set AWS_REGION in the environment. Regions are never hardcoded.

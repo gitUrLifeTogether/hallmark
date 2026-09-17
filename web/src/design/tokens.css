@@ -1,0 +1,117 @@
+/* Hallmark design tokens.
+ *
+ * The central idea: trust is a texture, not just a colour. Untrusted values carry a
+ * diagonal hatch as well as an ochre tag, so provenance stays readable for colour-blind
+ * users and scannable at a glance. Never signal trust with colour alone.
+ */
+
+:root {
+  --ground: #f3f4f1;
+  --surface: #ffffff;
+  --surface-2: #f8f8f6;
+  --ink: #15191c;
+  --ink-2: #4a535a;
+  --ink-3: #7b858c;
+  --rule: #dde0da;
+
+  --trusted: #1d5c63;
+  --trusted-soft: #e2eeef;
+  --untrusted: #a8641a;
+  --untrusted-soft: #f6ead9;
+
+  --allow: #1f7a4d;
+  --deny: #b42318;
+  --pending: #946200;
+  --info: #2f5f8f;
+
+  --hatch: repeating-linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--untrusted) 22%, transparent) 0 2px,
+    transparent 2px 7px
+  );
+
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --shadow-1:
+    0 1px 2px rgba(21, 25, 28, 0.06), 0 4px 16px rgba(21, 25, 28, 0.06);
+
+  --font-ui: "Geist", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  --font-display: "Instrument Serif", Georgia, serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --ground: #0f1214;
+    --surface: #161a1d;
+    --surface-2: #1b2023;
+    --ink: #e8ecee;
+    --ink-2: #a9b2b8;
+    --ink-3: #77828a;
+    --rule: #2a3035;
+    --trusted: #5fb3ba;
+    --trusted-soft: #17292b;
+    --untrusted: #e0a04f;
+    --untrusted-soft: #2e2417;
+    --allow: #57c08a;
+    --deny: #f07a6a;
+    --pending: #e2b341;
+    --info: #79a8d8;
+  }
+}
+
+:root[data-theme="dark"] {
+  --ground: #0f1214;
+  --surface: #161a1d;
+  --surface-2: #1b2023;
+  --ink: #e8ecee;
+  --ink-2: #a9b2b8;
+  --ink-3: #77828a;
+  --rule: #2a3035;
+  --trusted: #5fb3ba;
+  --trusted-soft: #17292b;
+  --untrusted: #e0a04f;
+  --untrusted-soft: #2e2417;
+  --allow: #57c08a;
+  --deny: #f07a6a;
+  --pending: #e2b341;
+  --info: #79a8d8;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--ground);
+  color: var(--ink);
+  font-family: var(--font-ui);
+  font-size: 15px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+
+code,
+.mono {
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+
+/* Money, counts and timings line up column-wise. */
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+:focus-visible {
+  outline: 2px solid var(--info);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

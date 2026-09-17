@@ -7,7 +7,8 @@ Built for **First Commit (WeMakeDevs × AWS), Sept 17–20, 2026**.
 
 ## Status
 
-Early scaffold. See [`docs/progress.md`](docs/progress.md) for current milestone status and [`CLAUDE.md`](CLAUDE.md) for the full spec this project is built against.
+Early scaffold. See [`docs/progress.md`](docs/progress.md) for current status, and
+[`docs/hld.md`](docs/hld.md) and [`docs/lld.md`](docs/lld.md) for the design.
 
 ## Sections to fill in as milestones land
 

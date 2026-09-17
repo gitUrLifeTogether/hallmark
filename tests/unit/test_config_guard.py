@@ -1,4 +1,4 @@
-"""The LOCAL_ONLY guard must make it impossible to reach real AWS (CLAUDE.md §0.0.1.4)."""
+"""The LOCAL_ONLY guard must make it impossible to reach real AWS."""
 
 from typing import Any
 

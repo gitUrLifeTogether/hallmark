@@ -1,11 +1,11 @@
-# Hallmark — Build It track (CLAUDE.md §0.0). Nothing here may touch real AWS.
+# Hallmark — everything runs locally. Nothing here may touch real AWS.
 .DEFAULT_GOAL := help
 SHELL := /bin/bash
 
 -include .env
 export
 
-# --- LOCAL_ONLY guard (CLAUDE.md §0.0.1.4) -----------------------------------
+# --- LOCAL_ONLY guard --------------------------------------------------------
 # Refuse to run any AWS-touching target unless the endpoint is a local emulator.
 define require_local_endpoint
 	@if [ -z "$$AWS_ENDPOINT_URL" ]; then \
@@ -52,7 +52,7 @@ e2e: ## End-to-end tests against LocalStack
 	$(require_local_endpoint)
 	uv run pytest -q tests/e2e
 
-spike: ## M0 feasibility spike (CLAUDE.md §18 M0)
+spike: ## Run the local platform feasibility spike
 	$(require_local_endpoint)
 	uv run python scripts/spike.py
 

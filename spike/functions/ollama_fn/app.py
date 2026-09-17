@@ -1,6 +1,6 @@
 """Spike check 2: prove a Lambda container can reach Ollama on the host.
 
-Scope: the *network path* only (CLAUDE.md §0.0.2, "Lambda → Ollama networking"), not
+Scope: the *network path* from a Lambda container to the model server only, not
 output quality. Uses stdlib urllib so the zip stays tiny; packaging the Strands SDK into
 the planner Lambda is a separate concern proven in M3.
 """

@@ -4,7 +4,8 @@
 # The environment tuning and the healthcheck timings are ours.
 services:
   localstack:
-    # Pinned tag (CLAUDE.md §0.0.3.2). Bump deliberately, never with :latest.
+    # Pinned deliberately. Never :latest -- an emulator changing under us would make
+    # every failure ambiguous.
     image: localstack/localstack:4.9.1
     container_name: hallmark-localstack
     ports:
@@ -13,7 +14,7 @@ services:
       LOCALSTACK_AUTH_TOKEN: ${LOCALSTACK_AUTH_TOKEN:?set LOCALSTACK_AUTH_TOKEN in .env}
       DEBUG: ${LOCALSTACK_DEBUG:-0}
       PERSISTENCE: 0
-      # Lambda containers must reach Ollama running on the host (CLAUDE.md §0.0.2).
+      # Lambda containers must be able to reach the model server on the host.
       LAMBDA_DOCKER_FLAGS: "--add-host=host.docker.internal:host-gateway"
       # 8 GB host: keep Lambda containers from piling up (see docs/decisions.md ADR-0004).
       LAMBDA_REMOVE_CONTAINERS: 1

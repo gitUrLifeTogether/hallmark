@@ -41,8 +41,9 @@ spike/functions/*/cedarpy/
 spike/functions/*/*.dist-info/
 spike/functions/*/.lock
 
-# Local spec, kept on disk but never tracked
-CLAUDE.md
 
 # Local run artifacts from model-backed runs
 m2_model_run.json
+
+# TypeScript incremental build cache
+*.tsbuildinfo

@@ -5,7 +5,7 @@ info:
   description: >
     HTTP API for the Hallmark console. Source of truth for TypeScript types
     (generated via openapi-typescript) and Pydantic request/response models.
-    Endpoints are listed in CLAUDE.md §14; fleshed out starting M3.
+    Endpoints are added as the console needs them.
 servers:
   - url: https://api.hallmark.example/v1
 paths: {}

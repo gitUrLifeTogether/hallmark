@@ -3,7 +3,7 @@ Transform: AWS::Serverless-2016-10-31
 Description: >
   Hallmark — provenance-aware policy enforcement for AI agents.
   M0 skeleton: hello-world HTTP API only. No account IDs, ARNs, model IDs
-  or regions are hardcoded here — everything comes from parameters/env (CLAUDE.md §0.6).
+  or regions are hardcoded here; everything comes from parameters and environment.
 
 Parameters:
   Stage:

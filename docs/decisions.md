@@ -24,34 +24,35 @@ run them once Python 3.12 landed.
 ## ADR-0003: Build It track — nothing touches real AWS (supersedes the earlier AWS-account plan)
 
 **Context:** An earlier version of this ADR treated "get an AWS account with a card" as an
-M0 blocker. `CLAUDE.md` §0.0 now defines the **Build It** track: the user cannot use paid
-AWS services or provide a card. An AWS Builder ID is a training/community identity and
-grants no access to AWS services, so it would not have unblocked anything either.
+M0 blocker. The project cannot use paid AWS services or put a card on file, so it runs
+entirely on local infrastructure. An AWS Builder ID is a training and community identity
+that grants no access to AWS services, so it would not have unblocked anything either.
 
-**Decision:** Build entirely on the local stack of §0.0.2 — Strands Agents with local
+**Decision:** Build entirely on a local stack — Strands Agents with local
 **Ollama** models, **Cedar via `cedarpy` evaluated inside the Lambda functions**, **SAM +
 LocalStack**. Bedrock, Verified Permissions, Cognito, Amplify, X-Ray and CloudWatch are
-**not provisioned**; §12 stays in the docs as the target production architecture, marked
-as such. Verified Permissions remains reachable later purely by swapping the `Authorizer`
+**not provisioned**; the cloud design stays in `docs/hld.md` as the target production
+architecture, marked as such. Verified Permissions remains reachable later purely by swapping the `Authorizer`
 port's adapter.
 
 **Consequences:** No cloud bill and no public URL; the project competes in Build It, not
-Ship It. The AVP/`cedarpy` parity test is deferred (§0.0.7) since only one backend exists.
+Ship It. A parity test between two authorization backends is deferred until a second
+backend exists.
 Enforced in code by the `LOCAL_ONLY` guard (`hallmark/config.py`), in tooling by the
 `Makefile` guard, and by using dummy credentials only.
 
 ## ADR-0004: Models chosen for an 8 GB machine
 
 **Context:** Dev machine measured at **7.77 GB RAM, Intel UHD integrated graphics (no
-discrete GPU), 8 logical cores, 72 GB free disk**. This is the 8 GB row of §0.0.4.
+discrete GPU), 8 logical cores, 72 GB free disk**.
 
 **Decision:** Planner `qwen3:4b` (2.5 GB, tool calling), reader `qwen3:1.7b` (1.4 GB,
 structured JSON, no tools). Both pulled 2026-09-17. Bench concurrency 1; bench runs
-in-process rather than on LocalStack (§0.0.5.4).
+in-process rather than on LocalStack, for speed.
 
 **Consequences:** Lower planner utility than the 32 GB row would give. **This does not
 weaken any security property** — labels, the PEP, Cedar and the canary test hold with any
-model; a weaker model only lowers utility (§0.0.4). Say so in README and video.
+model; a weaker model only lowers utility. Say so in README and video.
 
 ## ADR-0005: M0 feasibility spike — ALL CHECKS PASS, go on LocalStack
 
@@ -70,8 +71,8 @@ freeing memory and completed in the memory-safe order (Ollama stopped for 1b and
 | **4** | **Step Functions `waitForTaskToken`** | ✅ **PASS** | execution `RUNNING` while parked, token (len 36) stored in DynamoDB, second Lambda `SendTaskSuccess` → `SUCCEEDED`, output `{"outcome":"EXECUTED","approval":{"decision":"APPROVE"}}` | 1,247 MB |
 | **2** | **Lambda → Ollama via `host.docker.internal`** | ✅ **PASS** | `{"network_path":"ok","ollama_host":"http://host.docker.internal:11434","model":"qwen3:1.7b","response_text":"reachable"}` | 1,947 MB |
 
-**Go/no-go: GO.** The §0.0.6 fallback is **not** needed. Every Build It assumption that
-the architecture depends on is proven on this machine.
+**Go/no-go: GO.** The lighter fallback stack is **not** needed. Every assumption the
+architecture depends on is proven on this machine.
 
 **Two failures encountered and resolved along the way** (recorded per the honesty rule):
 1. First `awslocal` attempts **segfaulted** under memory pressure → resolved by using the

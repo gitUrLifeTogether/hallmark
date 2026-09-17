@@ -1,6 +1,6 @@
 """Spike check 4a: the Task state hands us a task token; park it and return nothing.
 
-This mirrors the real ApprovalWorkflow (CLAUDE.md §11.2): the workflow pauses here until a
+This mirrors the real approval workflow: it pauses here until a
 human decides, so the token must survive outside the execution.
 """
 
