@@ -1,0 +1,44 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  Hallmark — provenance-aware policy enforcement for AI agents.
+  M0 skeleton: hello-world HTTP API only. No account IDs, ARNs, model IDs
+  or regions are hardcoded here — everything comes from parameters/env (CLAUDE.md §0.6).
+
+Parameters:
+  Stage:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, demo]
+  TenantId:
+    Type: String
+    Default: kestrel
+
+Globals:
+  Function:
+    Runtime: python3.12
+    Timeout: 10
+    MemorySize: 256
+    Tracing: Active
+    Environment:
+      Variables:
+        STAGE: !Ref Stage
+        TENANT_ID: !Ref TenantId
+
+Resources:
+  HelloFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: handlers/api/
+      Handler: hello.handler
+      Events:
+        Hello:
+          Type: HttpApi
+          Properties:
+            Path: /hello
+            Method: GET
+
+Outputs:
+  ApiUrl:
+    Description: Base URL of the HTTP API
+    Value: !Sub "https://${ServerlessHttpApi}.execute-api.${AWS::Region}.amazonaws.com"

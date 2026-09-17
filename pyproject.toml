@@ -1,0 +1,43 @@
+[project]
+name = "hallmark"
+version = "0.1.0"
+description = "Provenance-aware firewall for AI agents"
+requires-python = ">=3.12"
+dependencies = [
+  "strands-agents>=0.1",
+  "boto3>=1.35",
+  "cedarpy>=1.1",
+  "pydantic>=2.9",
+  "aws-lambda-powertools>=3.2",
+  "python-ulid>=2.7",
+  "nh3>=0.2",
+  "beautifulsoup4>=4.12",
+  "pypdf>=5.1",
+  "reportlab>=4.2",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.3",
+  "pytest-cov>=6.0",
+  "hypothesis>=6.115",
+  "mypy>=1.14",
+  "ruff>=0.8",
+  "moto[all]>=5.0",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "C4", "SIM", "UP", "S", "C901"]
+mccabe.max-complexity = 10
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+files = ["hallmark"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
