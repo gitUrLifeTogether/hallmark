@@ -22,6 +22,9 @@ ALLOWED: dict[str, set[str]] = {
     "application": {"domain", "ports", "application"},
     "adapters": {"domain", "ports", "application", "adapters", "config"},
     "baseline": {"domain", "ports", "application", "adapters", "baseline"},
+    # The bench composes everything in order to measure it, so it carries the same
+    # permissions as a composition root rather than those of an application service.
+    "bench": {"domain", "ports", "application", "adapters", "baseline", "bench", "config"},
 }
 
 #: Modules that must not appear anywhere in the pure layers, whatever the import path.

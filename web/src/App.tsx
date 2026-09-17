@@ -11,6 +11,7 @@
 import { useEffect, useState } from "react";
 import { DecisionCard } from "./components/DecisionCard";
 import { Approvals } from "./features/Approvals";
+import { Bench } from "./features/Bench";
 import { SplitReplay } from "./features/SplitReplay";
 import { LineageGraph } from "./components/LineageGraph";
 import { SafeEmailViewer } from "./components/SafeEmailViewer";
@@ -25,11 +26,18 @@ import {
 import { formatPaise } from "./lib/types";
 
 type View =
-  "run" | "replay" | "lineage" | "evidence" | "approvals" | "policies";
+  | "run"
+  | "replay"
+  | "bench"
+  | "lineage"
+  | "evidence"
+  | "approvals"
+  | "policies";
 
 const TABS: { id: View; label: string }[] = [
   { id: "run", label: "Run" },
   { id: "replay", label: "Split replay" },
+  { id: "bench", label: "Bench" },
   { id: "lineage", label: "Lineage" },
   { id: "evidence", label: "Evidence" },
   { id: "approvals", label: "Approvals" },
@@ -58,14 +66,10 @@ function Stat({
   );
 }
 
-const VIEW_IDS = new Set<string>([
-  "run",
-  "replay",
-  "lineage",
-  "evidence",
-  "approvals",
-  "policies",
-]);
+// Derived from the tabs rather than listed again. Keeping a second copy is how a view
+// ends up reachable from the navigation but not from its own URL, which is a bug that
+// looks like the page silently ignoring the link.
+const VIEW_IDS = new Set<string>(TABS.map((tab) => tab.id));
 
 /** The view named in the URL, so a screen can be linked to and reloaded onto. */
 function viewFromHash(): View {
@@ -197,6 +201,8 @@ export default function App() {
       )}
 
       {view === "replay" && <SplitReplay />}
+
+      {view === "bench" && <Bench />}
 
       {view === "lineage" && (
         <section
