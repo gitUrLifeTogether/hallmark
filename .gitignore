@@ -35,3 +35,8 @@ Thumbs.db
 .idea/
 .vscode/*
 !.vscode/extensions.json
+
+# Vendored linux wheels for spike Lambdas (rebuild with uv --python-platform)
+spike/functions/*/cedarpy/
+spike/functions/*/*.dist-info/
+spike/functions/*/.lock

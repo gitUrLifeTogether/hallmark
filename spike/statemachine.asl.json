@@ -1,0 +1,28 @@
+{
+  "Comment": "Spike check 4: pause on a task token until an approver resumes us (CLAUDE.md §11.2).",
+  "StartAt": "AwaitApproval",
+  "States": {
+    "AwaitApproval": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke.waitForTaskToken",
+      "Parameters": {
+        "FunctionName": "hallmark-spike-tasktoken",
+        "Payload": {
+          "taskToken.$": "$$.Task.Token",
+          "approvalId.$": "$.approvalId"
+        }
+      },
+      "TimeoutSeconds": 300,
+      "ResultPath": "$.approval",
+      "Next": "Executed"
+    },
+    "Executed": {
+      "Type": "Pass",
+      "Parameters": {
+        "outcome": "EXECUTED",
+        "approval.$": "$.approval"
+      },
+      "End": true
+    }
+  }
+}

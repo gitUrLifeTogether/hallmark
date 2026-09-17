@@ -35,21 +35,30 @@ Cedar CLI intentionally skipped (needs Rust; `cedarpy` validates schemas in-proc
 - Spike checks **3 (DynamoDB)**, **5 (EventBridge→SQS)** and **1a (cedarpy on host)** PASS.
   Full results, pass and fail, in ADR-0005.
 
-**⏸️ HALTED — awaiting a decision from the user:**
-Spike checks **1b** (cedarpy inside Lambda), **2** (Lambda→Ollama via
-`host.docker.internal`) and **4** (Step Functions `waitForTaskToken`) are **not run**. The
-host hit its memory ceiling first: 0.5 GB free RAM, commit 23.2/24.8 GB, `awslocal`
-segfaulting. Per standing instruction, stopped rather than pushing through swapping.
-These checks are **unproven, not failed** — no §0.0.6 fallback decision has been made.
+**✅ SPIKE COMPLETE — all five checks PASS. Go/no-go: GO on LocalStack.**
+The §0.0.6 fallback is **not** needed. Checks 1b (cedarpy in a Lambda container), 4 (Step
+Functions `waitForTaskToken` end-to-end) and 2 (Lambda→Ollama via `host.docker.internal`)
+all pass; full evidence and free-RAM readings in ADR-0005.
+`OLLAMA_KEEP_ALIVE=0` + `OLLAMA_MAX_LOADED_MODELS=1` set for headroom (ADR-0007).
+
+**Carried into M3 as unproven (do not assume these work):**
+- `samlocal build && samlocal deploy` (CloudFormation) against LocalStack — the spike
+  created resources directly via the `aws` CLI to conserve memory.
+- Packaging the **Strands Agents SDK** into the planner Lambda (check 2 used stdlib
+  `urllib`, proving the network path only).
 
 **Not started:** console placeholder at `localhost:5173`; `pre-commit install`;
 full §17 directory skeleton.
 
+## Gotchas that will bite again
+
+- `PERSISTENCE: 0` — LocalStack state is lost on restart; `make seed` must be idempotent.
+- On Windows, `aws lambda invoke --payload` with inline escaped JSON fails with a utf-8
+  decode error. **Always pass `fileb://<file>`.**
+- Prefer the compiled `aws --endpoint-url` over `awslocal` (ADR-0006).
+
 ## Next steps
 
-1. Free memory (stop the unrelated `trueforge` stack; close Brave/VS Code), then re-run
-   spike checks 1b, 2, 4.
-2. If they fail twice with memory free → propose the §0.0.6 fallback (SAM CLI local +
-   DynamoDB Local + local workflow engine behind the `RunOrchestrator`/`ApprovalGateway`
-   ports). Only adapters change; the hexagonal core, Cedar, Strands and Ollama are the same.
-3. Then M1 — core security kernel (labels, declassify, lineage, PEP, ≥30 Cedar tests).
+1. M1 — core security kernel (labels, declassify, lineage, PEP, ≥30 Cedar scenario tests).
+2. Console placeholder + `pre-commit install` + full §17 skeleton (M0 leftovers).
+3. Validate `samlocal` + CloudFormation early in M3.

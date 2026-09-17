@@ -53,36 +53,61 @@ in-process rather than on LocalStack (§0.0.5.4).
 weaken any security property** — labels, the PEP, Cedar and the canary test hold with any
 model; a weaker model only lowers utility (§0.0.4). Say so in README and video.
 
-## ADR-0005: M0 feasibility spike — partial results, halted on memory pressure
+## ADR-0005: M0 feasibility spike — ALL CHECKS PASS, go on LocalStack
 
 Run 2026-09-17 against LocalStack **4.9.1, community edition**, free auth token accepted.
-Recorded pass *and* fail as instructed.
+Recorded pass *and* fail as instructed. Initially halted on memory pressure; resumed after
+freeing memory and completed in the memory-safe order (Ollama stopped for 1b and 4).
 
-| # | Check | Result | Evidence |
-|---|---|---|---|
-| — | LocalStack starts on the free token | ✅ PASS | container healthy; `edition: community` |
-| — | Required services available | ✅ PASS | `dynamodb, lambda, s3, events, sqs, stepfunctions, apigateway, iam, logs` all `available` on the free plan |
-| 3 | DynamoDB table write + read | ✅ PASS | `put-item` then `get-item` returned `{"pk":"spike#1","note":"hallmark-m0"}` |
-| 5 | EventBridge rule → SQS → host script | ✅ PASS | `put-events` `FailedEntryCount=0`; host received the full envelope incl. `detail.policyId=pay-account-must-be-master` |
-| 1a | `cedarpy` evaluates a policy (host Python) | ✅ PASS | legit payment `Decision.Allow`; email-derived account `Decision.Deny` — the core guarantee |
-| 1b | `cedarpy` evaluated **inside a Lambda** | ⏸️ NOT RUN | needs Lambda containers — halted, see below |
-| 2 | Lambda → Ollama on host via `host.docker.internal` | ⏸️ NOT RUN | needs Lambda container + 2.5 GB model resident |
-| 4 | Step Functions `waitForTaskToken` | ⏸️ NOT RUN | needs Lambda containers |
+| # | Check | Result | Evidence | Free RAM after |
+|---|---|---|---|---|
+| — | LocalStack starts on the free token | ✅ PASS | container healthy; `edition: community` | — |
+| — | Required services available | ✅ PASS | `dynamodb, lambda, s3, events, sqs, stepfunctions, apigateway, iam, logs` all `available` on the free plan | — |
+| 3 | DynamoDB table write + read | ✅ PASS | `get-item` returned `{"pk":"spike#1","note":"hallmark-m0"}` | — |
+| 5 | EventBridge rule → SQS → host script | ✅ PASS | `FailedEntryCount=0`; host received full envelope incl. `detail.policyId=pay-account-must-be-master` | — |
+| 1a | `cedarpy` evaluates a policy (host Python) | ✅ PASS | legit `Decision.Allow`; email-derived account `Decision.Deny` | — |
+| **1b** | **`cedarpy` inside a Lambda container** | ✅ **PASS** | `{"cedar_import":"ok","legit_payment":"Decision.Allow","bec_email_derived_account":"Decision.Deny","guarantee_holds":true,"dynamodb_write":"ok"}`; the Lambda's own DynamoDB write read back | 410 MB |
+| **4** | **Step Functions `waitForTaskToken`** | ✅ **PASS** | execution `RUNNING` while parked, token (len 36) stored in DynamoDB, second Lambda `SendTaskSuccess` → `SUCCEEDED`, output `{"outcome":"EXECUTED","approval":{"decision":"APPROVE"}}` | 1,247 MB |
+| **2** | **Lambda → Ollama via `host.docker.internal`** | ✅ **PASS** | `{"network_path":"ok","ollama_host":"http://host.docker.internal:11434","model":"qwen3:1.7b","response_text":"reachable"}` | 1,947 MB |
 
-**Why halted:** the host hit its memory ceiling before checks 1b/2/4 could run —
-**0.5 GB free physical RAM, commit charge 23.2 GB against a 24.8 GB limit (94%), 4.7 GB of
-pagefile in use.** The first concrete symptom was `awslocal` **segfaulting** on every
-invocation (its Python wrapper could not allocate). The user's standing instruction was to
-stop rather than push through swapping, so the spike was halted rather than continued.
-Checks 1b/2/4 are **unproven, not failed** — no conclusion either way.
+**Go/no-go: GO.** The §0.0.6 fallback is **not** needed. Every Build It assumption that
+the architecture depends on is proven on this machine.
 
-**Contributing factor:** an unrelated `trueforge` stack (truefoundry-server 1.71 GB image +
-postgres + redis) was running throughout and is still resident.
+**Two failures encountered and resolved along the way** (recorded per the honesty rule):
+1. First `awslocal` attempts **segfaulted** under memory pressure → resolved by using the
+   compiled `aws` CLI (ADR-0006), not by changing the architecture.
+2. `lambda invoke --payload` with inline escaped JSON failed with
+   `InvalidRequestContentException: 'utf-8' codec can't decode byte 0x9a` — a PowerShell
+   quoting artifact, not a LocalStack limitation. Resolved by passing `fileb://<file>`.
+   **Use file-based payloads in all scripts and Makefile targets on Windows.**
 
-**Decision:** Do not conclude on §0.0.6 yet. The three services those checks depend on are
-confirmed *available*; what is unproven is whether **this machine** can hold LocalStack +
-Lambda containers + a 2.5 GB model at once. Re-run 1b/2/4 after freeing memory before
-deciding whether to fall back.
+**Scope limits — what this spike did *not* prove** (do not overclaim):
+- Check 2 proves the **network path** only, using stdlib `urllib`. Packaging the **Strands
+  Agents SDK** into the planner Lambda is a separate risk, carried into M3.
+- The spike created Lambdas/state machines **directly via the `aws` CLI**, not through
+  `samlocal build && samlocal deploy` (CloudFormation), to keep memory headroom while the
+  host was constrained. **`samlocal` + CloudFormation against LocalStack is still
+  unproven** and is the first thing to validate in M3.
+- `PERSISTENCE: 0`, so LocalStack state is lost on restart. `make seed` must be
+  re-runnable and idempotent; the DynamoDB table vanished mid-spike for exactly this reason.
+
+## ADR-0007: Serial model loading on a small-RAM host
+
+**Context:** The dev host has 7.77 GB RAM and must hold Docker + LocalStack + Lambda
+containers + an Ollama model simultaneously. During the first spike attempt the host sat at
+~0.5 GB available with the commit charge at 94%, and `awslocal` segfaulted.
+
+**Decision:** Set `OLLAMA_KEEP_ALIVE=0` and `OLLAMA_MAX_LOADED_MODELS=1` (persisted at User
+scope). Models unload immediately after each call, and only one model is ever resident, so
+the planner and reader models never occupy memory at the same time.
+
+**Consequences:** Trades **reload latency for headroom** — every planner/reader call pays a
+model load (seconds on this host), which will show up in bench latency numbers and must be
+reported honestly as a property of the hardware, not of Hallmark. Measured benefit is real:
+free RAM *rose* from 1,247 MB to 1,947 MB across the Ollama check, because the model
+unloaded as soon as the call returned. Bench concurrency stays at 1 (ADR-0004). If a later
+milestone needs both models hot, this is the first setting to revisit — on a larger host,
+drop it.
 
 ## ADR-0006: Use `aws --endpoint-url` rather than `awslocal`
 
