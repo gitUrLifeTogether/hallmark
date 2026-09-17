@@ -287,6 +287,47 @@ open. The dangerous part is the second one: the build fails, the deploy proceeds
 before a build whenever the previous one failed, and never trust a deploy that followed a
 failed build.
 
+## ADR-0014: Contract tests, because in-memory adapters agree with themselves
+
+**Context:** The whole security kernel is tested against in-memory adapters, which is fast
+and keeps the kernel free of infrastructure. It is also only sound if the real adapters
+honour the same contract. The first run of the DynamoDB contract tests failed immediately:
+the values table had been declared as a single-key `SimpleTable` while the adapter reads
+and writes a partition and sort key. Nothing in the unit suite could have caught it,
+because the in-memory store is a dictionary and agrees with any key shape.
+
+**Decision:** Keep a contract suite that runs the same expectations against the deployed
+stack, marked `localstack` so the default suite stays fast. Cover the differences that
+would otherwise be silent rather than loud: provenance surviving a round trip, an integer
+amount not returning as a float, handles being scoped to their run, vendor versioning not
+duplicating rows, and duplicate detection matching case-insensitively and per vendor.
+
+**Consequences:** Ten tests that need the stack running. They caught a real schema fault on
+their first execution, which is the entire argument for having them.
+
+## ADR-0015: A successful deploy is not evidence, twice over
+
+Two separate faults now share a shape: **CloudFormation reported success while the
+infrastructure was wrong.**
+
+1. An HTTP API v2 stack reached `CREATE_COMPLETE` with the stage marked *"not supported but
+   deployed as a fallback"*. The service is not emulated at all, so every call failed
+   (ADR-0012).
+2. Changing the values table from a single key to a partition-and-sort key deployed
+   cleanly and **changed nothing**. A key schema change requires table replacement;
+   the existing table kept its old schema and the deploy still said
+   `Successfully created/updated stack`.
+
+**Decision:** Never treat a green deploy as verification. After any infrastructure change,
+assert the property that was supposed to change — `describe-table` for a key schema, a real
+HTTP call for an endpoint — and let the contract tests run against the result. For a key
+schema change specifically, replace the stack rather than updating it; all data here is
+regenerable fixtures and `make seed` is idempotent for exactly this reason.
+
+**Consequences:** Deployment steps take longer and the Makefile clears build output first.
+The alternative is a stack that reports health while quietly serving the wrong schema, which
+is worse than a failure because nobody goes looking.
+
 ## ADR-0006: Use `aws --endpoint-url` rather than `awslocal`
 
 **Context:** `awslocal` (a Python wrapper around the AWS CLI) segfaulted on every call under

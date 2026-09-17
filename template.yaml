@@ -2,8 +2,8 @@ AWSTemplateFormatVersion: "2010-09-09"
 Transform: AWS::Serverless-2016-10-31
 Description: >
   Hallmark — provenance-aware policy enforcement for AI agents.
-  M0 skeleton: hello-world HTTP API only. No account IDs, ARNs, model IDs
-  or regions are hardcoded here; everything comes from parameters and environment.
+  No account ids, ARNs, model ids or regions are hardcoded here; everything comes from
+  parameters and environment. Runs against a local emulator only.
 
 Parameters:
   Stage:
@@ -13,22 +13,212 @@ Parameters:
   TenantId:
     Type: String
     Default: kestrel
+  OllamaHost:
+    Type: String
+    # Lambda containers reach the model server on the host, not on their own loopback.
+    Default: http://host.docker.internal:11434
 
 Globals:
   Function:
     Runtime: python3.12
-    Timeout: 10
-    MemorySize: 256
-    Tracing: Active
+    Timeout: 30
+    MemorySize: 512
     Environment:
       Variables:
         STAGE: !Ref Stage
         TENANT_ID: !Ref TenantId
+        LOCAL_ONLY: "true"
+        AWS_ENDPOINT_URL: http://localstack:4566
+        OLLAMA_HOST: !Ref OllamaHost
+        VALUES_TABLE: !Ref ValuesTable
+        LINEAGE_TABLE: !Ref LineageTable
+        DECISIONS_TABLE: !Ref DecisionsTable
+        RUNS_TABLE: !Ref RunsTable
+        VENDOR_TABLE: !Ref VendorTable
+        LEDGER_TABLE: !Ref LedgerTable
+        APPROVALS_TABLE: !Ref ApprovalsTable
+        ARTIFACTS_BUCKET: !Ref ArtifactsBucket
+        EVENT_BUS: !Ref HallmarkBus
 
 Resources:
-  # REST API (v1), not HTTP API (v2). The emulator this runs against does not provide
-  # apigatewayv2 on the free plan: CloudFormation reports the stage as "deployed as a
-  # fallback" and every call to the service then fails. REST v1 is fully emulated.
+  # --- State ------------------------------------------------------------------
+  # Values, lineage and decisions share a key shape: partition by run, sort by
+  # entity. Everything for one run is then a single query, which is what the
+  # console asks for on every screen.
+  ValuesTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub "hallmark-${Stage}-values"
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: pk
+          AttributeType: S
+        - AttributeName: sk
+          AttributeType: S
+      KeySchema:
+        - AttributeName: pk
+          KeyType: HASH
+        - AttributeName: sk
+          KeyType: RANGE
+
+  LineageTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub "hallmark-${Stage}-lineage"
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: pk
+          AttributeType: S
+        - AttributeName: sk
+          AttributeType: S
+        - AttributeName: targetHandle
+          AttributeType: S
+      KeySchema:
+        - AttributeName: pk
+          KeyType: HASH
+        - AttributeName: sk
+          KeyType: RANGE
+      GlobalSecondaryIndexes:
+        # Lineage is walked backwards: "what did this decision come from?"
+        - IndexName: target-index
+          KeySchema:
+            - AttributeName: targetHandle
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+
+  DecisionsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub "hallmark-${Stage}-decisions"
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: pk
+          AttributeType: S
+        - AttributeName: sk
+          AttributeType: S
+      KeySchema:
+        - AttributeName: pk
+          KeyType: HASH
+        - AttributeName: sk
+          KeyType: RANGE
+
+  RunsTable:
+    Type: AWS::Serverless::SimpleTable
+    Properties:
+      TableName: !Sub "hallmark-${Stage}-runs"
+      PrimaryKey:
+        Name: pk
+        Type: String
+
+  VendorTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub "hallmark-${Stage}-vendors"
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: pk
+          AttributeType: S
+        - AttributeName: sk
+          AttributeType: N
+        - AttributeName: gstin_lookup
+          AttributeType: S
+      KeySchema:
+        - AttributeName: pk
+          KeyType: HASH
+        # Version number. Sort key 0 is the pointer to the live record, so a bank
+        # change writes a new version instead of overwriting history.
+        - AttributeName: sk
+          KeyType: RANGE
+      GlobalSecondaryIndexes:
+        - IndexName: gstin-index
+          KeySchema:
+            - AttributeName: gstin_lookup
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+
+  LedgerTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub "hallmark-${Stage}-ledger"
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: pk
+          AttributeType: S
+        - AttributeName: invoice_lookup
+          AttributeType: S
+      KeySchema:
+        - AttributeName: pk
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        # Duplicate detection runs on every payment, so it is an exact-key query
+        # rather than a scan.
+        - IndexName: invoice-index
+          KeySchema:
+            - AttributeName: invoice_lookup
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+
+  ApprovalsTable:
+    Type: AWS::Serverless::SimpleTable
+    Properties:
+      TableName: !Sub "hallmark-${Stage}-approvals"
+      PrimaryKey:
+        Name: pk
+        Type: String
+
+  ArtifactsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "hallmark-${Stage}-artifacts"
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+  # --- Events -----------------------------------------------------------------
+  # Every step publishes to the bus; a rule forwards to a queue the console
+  # gateway drains. Decoupling the runtime from the UI means a slow reader can
+  # never stall a decision.
+  HallmarkBus:
+    Type: AWS::Events::EventBus
+    Properties:
+      Name: !Sub "hallmark-${Stage}"
+
+  ConsoleEventsQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub "hallmark-${Stage}-console-events"
+      MessageRetentionPeriod: 3600
+
+  ConsoleEventsRule:
+    Type: AWS::Events::Rule
+    Properties:
+      EventBusName: !Ref HallmarkBus
+      EventPattern:
+        source: ["hallmark"]
+      Targets:
+        - Arn: !GetAtt ConsoleEventsQueue.Arn
+          Id: console-events
+
+  ConsoleEventsQueuePolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues: [!Ref ConsoleEventsQueue]
+      PolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: events.amazonaws.com
+            Action: sqs:SendMessage
+            Resource: !GetAtt ConsoleEventsQueue.Arn
+
+  # --- API --------------------------------------------------------------------
+  # REST (v1), not HTTP API (v2): the emulator does not provide apigatewayv2 on
+  # the free plan, and a v2 deploy reports success while being unusable.
   HallmarkApi:
     Type: AWS::Serverless::Api
     Properties:
@@ -36,17 +226,20 @@ Resources:
       EndpointConfiguration:
         Type: REGIONAL
 
-  HelloFunction:
+  HealthFunction:
     Type: AWS::Serverless::Function
     Properties:
       CodeUri: handlers/api/
-      Handler: hello.handler
+      Handler: health.handler
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref RunsTable
       Events:
-        Hello:
+        Health:
           Type: Api
           Properties:
             RestApiId: !Ref HallmarkApi
-            Path: /hello
+            Path: /health
             Method: GET
 
 Outputs:
@@ -54,5 +247,10 @@ Outputs:
     Description: REST API id, for building local URLs
     Value: !Ref HallmarkApi
   ApiUrl:
-    Description: Base URL of the REST API
-    Value: !Sub "https://${HallmarkApi}.execute-api.${AWS::Region}.amazonaws.com/${Stage}"
+    Description: Local base URL of the REST API
+    Value: !Sub "http://localhost:4566/restapis/${HallmarkApi}/${Stage}/_user_request_"
+  QueueUrl:
+    Description: Queue the console gateway drains
+    Value: !Ref ConsoleEventsQueue
+  ArtifactsBucket:
+    Value: !Ref ArtifactsBucket
