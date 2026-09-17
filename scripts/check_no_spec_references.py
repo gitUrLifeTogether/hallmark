@@ -25,7 +25,11 @@ from pathlib import Path
 #: to a rule that is only worth having if it has none.
 _SPEC_STEM = "c" + "laude"
 SPEC_FILENAME = re.compile(rf"{_SPEC_STEM}\.md", re.IGNORECASE)
-SECTION_MARKER = re.compile(r"§\s*\d")
+
+#: Built with chr() rather than written out. An escape sequence was tried first and the
+#: formatter helpfully rewrote it back into the literal character, which put the marker
+#: this checker forbids into the checker itself.
+SECTION_MARKER = re.compile(chr(0xA7) + r"\s*\d")
 
 SELF = Path(__file__).name
 
