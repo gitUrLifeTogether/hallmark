@@ -32,6 +32,12 @@ from hallmark.domain.mandate import Mandate
 from hallmark.domain.tools import ReasonCode, ToolOutcome, ToolResult
 from hallmark.domain.values import Labeled
 from hallmark.ports.authorizer import Authorizer, Decision
+from hallmark.ports.events import (
+    DomainEvent,
+    EventPublisher,
+    EventType,
+    RecordingEventPublisher,
+)
 from hallmark.ports.repositories import (
     Company,
     LedgerEntry,
@@ -99,6 +105,7 @@ class PolicyEnforcementPoint:
         company: Company,
         ids: IdGenerator,
         clock: Clock,
+        events: EventPublisher | None = None,
     ) -> None:
         self._authorizer = authorizer
         self._values = values
@@ -109,6 +116,8 @@ class PolicyEnforcementPoint:
         self._company = company
         self._ids = ids
         self._clock = clock
+        # Optional on purpose: a run with no console attached must still enforce.
+        self._events = events or RecordingEventPublisher()
 
     # ---------------------------------------------------------------- helpers
 
@@ -158,7 +167,62 @@ class PolicyEnforcementPoint:
                     label=name,
                 )
             )
+
+        self._emit(run, decision_id, tool, args, decision, outcome, reason)
         return decision_id
+
+    def _emit(
+        self,
+        run: RunContext,
+        decision_id: str,
+        tool: str,
+        args: dict[str, Labeled[Any]],
+        decision: Decision,
+        outcome: ToolOutcome,
+        reason: ReasonCode,
+    ) -> None:
+        """Tell the console what happened, in handles and enums only.
+
+        Argument provenance is included because it is the thing the console draws, and
+        it is safe to send: sources are labels, not content.
+        """
+        outcome_events = {
+            ToolOutcome.EXECUTED: EventType.ACTION_EXECUTED,
+            ToolOutcome.PENDING_APPROVAL: EventType.ACTION_PENDING,
+            ToolOutcome.DENIED: EventType.ACTION_HARD_DENIED,
+        }
+        at = self._clock.now_iso()
+
+        self._events.publish(
+            DomainEvent(
+                type=EventType.POLICY_EVALUATED,
+                run_id=run.run_id,
+                at=at,
+                payload={
+                    "decisionId": decision_id,
+                    "tool": tool,
+                    "allow": decision.allow,
+                    "determiningPolicies": list(decision.determining_policies),
+                    "reasonCode": str(reason),
+                    "arguments": {
+                        name: {
+                            "handle": value.handle,
+                            "sources": sorted(str(s) for s in value.sources),
+                            "trusted": value.trusted,
+                        }
+                        for name, value in args.items()
+                    },
+                },
+            )
+        )
+        self._events.publish(
+            DomainEvent(
+                type=outcome_events[outcome],
+                run_id=run.run_id,
+                at=at,
+                payload={"decisionId": decision_id, "tool": tool, "reasonCode": str(reason)},
+            )
+        )
 
     @staticmethod
     def _reason_for(decision: Decision, fallback: ReasonCode) -> ReasonCode:
