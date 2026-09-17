@@ -1,0 +1,435 @@
+"""The tool surface the planner is allowed to touch.
+
+Every return value here is built from handles, enums, booleans and declassified displays.
+No method returns untrusted text, and none of them accepts one: the planner names values
+by handle and never sees what is behind them. This is the boundary that the canary test
+in `tests/security/` exists to police.
+
+The methods are plain Python so they can be tested and driven by the scripted planner
+without a model. The Strands wrappers in `planner.py` are thin adapters over these.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Any
+
+from hallmark.application.pep import PolicyEnforcementPoint, RunContext
+from hallmark.application.reader import verify_fields_in_source
+from hallmark.domain.declassify import try_declassify
+from hallmark.domain.labels import Confidentiality, Source, ValueType
+from hallmark.domain.lineage import EdgeKind, LineageEdge
+from hallmark.domain.tools import FlagReason, ToolSpec
+from hallmark.domain.values import Labeled, derive
+from hallmark.ports.repositories import InboxRepository, VendorRepository
+from hallmark.ports.stores import Clock, IdGenerator, LineageStore, ValueStore
+
+#: Which extracted field becomes which kind of value.
+EXTRACTED_FIELD_TYPES: dict[str, ValueType] = {
+    "gstin": ValueType.GSTIN,
+    "invoice_number": ValueType.INVOICE_NUMBER,
+    "amount": ValueType.MONEY_PAISE,
+    "due_date": ValueType.DATE,
+    "bank_account": ValueType.ACCOUNT_NUMBER,
+    "ifsc": ValueType.IFSC,
+}
+
+TOOL_SPECS: dict[str, ToolSpec] = {
+    "list_inbox": ToolSpec("list_inbox", consequential=False),
+    "read_email": ToolSpec(
+        "read_email", consequential=False, handle_required_args=frozenset({"email_handle"})
+    ),
+    "extract_invoice": ToolSpec(
+        "extract_invoice", consequential=False, handle_required_args=frozenset({"source_handle"})
+    ),
+    "lookup_vendor": ToolSpec(
+        "lookup_vendor", consequential=False, handle_required_args=frozenset({"gstin_handle"})
+    ),
+    "check_duplicate": ToolSpec(
+        "check_duplicate",
+        consequential=False,
+        handle_required_args=frozenset({"vendor_handle", "invoice_number_handle"}),
+    ),
+    "pay_vendor": ToolSpec(
+        "pay_vendor",
+        consequential=True,
+        handle_required_args=frozenset(
+            {"vendor_handle", "account_handle", "amount_handle", "invoice_handle"}
+        ),
+        cedar_action="pay_vendor",
+    ),
+    "send_email": ToolSpec(
+        "send_email",
+        consequential=True,
+        handle_required_args=frozenset({"recipient_handle"}),
+        cedar_action="send_email",
+    ),
+    "flag_for_review": ToolSpec(
+        "flag_for_review", consequential=False, handle_required_args=frozenset({"handle"})
+    ),
+    "export_vendor_master": ToolSpec("export_vendor_master", consequential=False),
+    "open_bank_change_review": ToolSpec(
+        "open_bank_change_review",
+        consequential=False,
+        handle_required_args=frozenset({"vendor_handle", "proposed_account_handle"}),
+    ),
+}
+
+
+@dataclass
+class ReaderPort:
+    """Whatever turns untrusted text into a strict form. Never given tools."""
+
+    extract: Any
+
+
+class AgentTools:
+    """Handle-based tools shared by the scripted and model-driven planners."""
+
+    def __init__(
+        self,
+        run: RunContext,
+        pep: PolicyEnforcementPoint,
+        inbox: InboxRepository,
+        vendors: VendorRepository,
+        values: ValueStore,
+        lineage: LineageStore,
+        ids: IdGenerator,
+        clock: Clock,
+        reader: Any,
+    ) -> None:
+        self.run = run
+        self._pep = pep
+        self._inbox = inbox
+        self._vendors = vendors
+        self._values = values
+        self._lineage = lineage
+        self._ids = ids
+        self._clock = clock
+        self._reader = reader
+        self._email_by_handle: dict[str, str] = {}
+        self.flags: list[tuple[str, str]] = []
+        self.reviews: list[str] = []
+        self.call_budget: int | None = None
+        self.calls_made = 0
+
+    def start_episode(self, budget: int) -> None:
+        """Begin one email's episode with a fresh call budget."""
+        self.call_budget = budget
+        self.calls_made = 0
+
+    def _spend_call(self) -> bool:
+        """Consume one unit of budget, returning False once it is exhausted.
+
+        A small model that loses the thread will otherwise call tools forever. Bounding
+        the work in code rather than in the prompt means a confused planner stalls
+        instead of running up an unbounded bill, and the run still terminates.
+        """
+        if self.call_budget is None:
+            return True
+        self.calls_made += 1
+        return self.calls_made <= self.call_budget
+
+    # --------------------------------------------------------------- internals
+
+    def _store(self, value: Labeled[Any]) -> Labeled[Any]:
+        self._values.put(value)
+        for parent in value.parents:
+            self._lineage.add_edge(
+                LineageEdge(
+                    edge_id=self._ids.new_id("edge"),
+                    run_id=value.run_id,
+                    source_handle=parent,
+                    target_handle=value.handle,
+                    kind=EdgeKind.DERIVE,
+                    label=value.op,
+                )
+            )
+        return value
+
+    def _ingest(
+        self, text: str, sources: set[Source], vtype: ValueType = ValueType.FREE_TEXT
+    ) -> Labeled[str]:
+        return self._store(
+            Labeled(
+                handle=self._ids.new_handle(),
+                value=text,
+                vtype=vtype,
+                sources=frozenset(sources),
+                confidentiality=Confidentiality.INTERNAL,
+                run_id=self.run.run_id,
+                op="ingest",
+                created_at=self._clock.now_iso(),
+            )
+        )
+
+    # -------------------------------------------------------------- read tools
+
+    def list_inbox(self) -> dict[str, Any]:
+        """List waiting emails as handles. No subjects, senders or bodies."""
+        entries = []
+        for email in self._inbox.list_emails():
+            handle = self._ids.new_handle()
+            self._email_by_handle[handle] = email.email_id
+            self._store(
+                Labeled(
+                    handle=handle,
+                    value=email.email_id,
+                    vtype=ValueType.ENUM,
+                    sources=frozenset({Source.SYSTEM}),
+                    confidentiality=Confidentiality.INTERNAL,
+                    run_id=self.run.run_id,
+                    op="inbox_entry",
+                    created_at=self._clock.now_iso(),
+                )
+            )
+            entries.append(
+                {
+                    "email_handle": handle,
+                    "received_at": email.received_at,
+                    "has_attachments": bool(email.attachments),
+                }
+            )
+        return {"emails": entries}
+
+    def read_email(self, email_handle: str) -> dict[str, Any]:
+        """Open an email. The body stays in the store; only handles come back."""
+        if not self._spend_call():
+            return {"error": "CALL_BUDGET_EXHAUSTED"}
+
+        email_id = self._email_by_handle.get(email_handle)
+        if email_id is None:
+            return {"error": "UNKNOWN_HANDLE"}
+        email = self._inbox.get(email_id)
+        if email is None:
+            return {"error": "UNKNOWN_HANDLE"}
+
+        combined = email.body
+        if email.hidden_text:
+            combined += "\n" + email.hidden_text
+        sources = {Source.EXTERNAL_EMAIL}
+        for attachment in email.attachments:
+            combined += "\n" + attachment.text
+            if attachment.hidden_text:
+                combined += "\n" + attachment.hidden_text
+            sources.add(Source.EXTERNAL_ATTACHMENT)
+
+        body = self._ingest(combined, sources)
+        sender_domain = self._ingest(
+            email.sender.split("@", 1)[1].lower(), {Source.EXTERNAL_EMAIL}, ValueType.DOMAIN
+        )
+
+        return {
+            "body_handle": body.handle,
+            "sender_domain_handle": sender_domain.handle,
+            "auth": {"dkim": "pass" if email.dkim_pass else "fail"},
+            "has_attachments": bool(email.attachments),
+        }
+
+    def extract_invoice(self, source_handle: str) -> dict[str, Any]:
+        """Run the quarantined reader over stored content and label what survives."""
+        if not self._spend_call():
+            return {"error": "CALL_BUDGET_EXHAUSTED"}
+
+        body = self._values.get(self.run.run_id, source_handle)
+        if body is None:
+            return {"error": "UNKNOWN_HANDLE"}
+
+        try:
+            extraction = self._reader.extract(str(body.value))
+        except Exception:
+            return {"fields": {}, "extraction_warnings": ["EXTRACTION_FAILED"]}
+
+        verified = verify_fields_in_source(extraction, str(body.value))
+        fields: dict[str, Any] = {}
+
+        for name, raw in verified.fields.items():
+            vtype = EXTRACTED_FIELD_TYPES.get(name, ValueType.FREE_TEXT)
+            value: Any = raw
+            if vtype is ValueType.MONEY_PAISE:
+                try:
+                    value = int(str(raw).replace(",", "").strip()) * 100
+                except ValueError:
+                    continue
+
+            labeled = try_declassify(
+                derive(
+                    handle=self._ids.new_handle(),
+                    value=value,
+                    vtype=vtype,
+                    inputs=[body],
+                    op="reader_extract",
+                    run_id=self.run.run_id,
+                    created_at=self._clock.now_iso(),
+                    extra_sources=frozenset({Source.MODEL_READER}),
+                )
+            )
+            self._store(labeled)
+            entry: dict[str, Any] = {"handle": labeled.handle}
+            if labeled.declassified and labeled.display is not None:
+                entry["display"] = labeled.display
+            fields[name] = entry
+
+        return {"fields": fields, "extraction_warnings": sorted(set(verified.warnings))}
+
+    def lookup_vendor(self, gstin_handle: str, sender_domain_handle: str) -> dict[str, Any]:
+        """Find the vendor by GSTIN and report whether the sender really matches it."""
+        if not self._spend_call():
+            return {"error": "CALL_BUDGET_EXHAUSTED"}
+
+        gstin = self._values.get(self.run.run_id, gstin_handle)
+        domain = self._values.get(self.run.run_id, sender_domain_handle)
+        if gstin is None or domain is None:
+            return {"error": "UNKNOWN_HANDLE"}
+
+        vendor = self._vendors.by_gstin(str(gstin.value))
+        if vendor is None:
+            return {"found": False}
+
+        vendor_value = self._store(
+            Labeled(
+                handle=self._ids.new_handle(),
+                value=vendor.vendor_id,
+                vtype=ValueType.ENUM,
+                sources=frozenset({Source.COMPANY_DB}),
+                confidentiality=Confidentiality.INTERNAL,
+                run_id=self.run.run_id,
+                op="db_lookup",
+                created_at=self._clock.now_iso(),
+            )
+        )
+        # The record is ours, but untrusted input chose it. Keep that visible.
+        self._lineage.add_edge(
+            LineageEdge(
+                edge_id=self._ids.new_id("edge"),
+                run_id=self.run.run_id,
+                source_handle=gstin.handle,
+                target_handle=vendor_value.handle,
+                kind=EdgeKind.SELECTION,
+                label="gstin",
+            )
+        )
+
+        account = self._store(
+            Labeled(
+                handle=self._ids.new_handle(),
+                value=vendor.account_number,
+                vtype=ValueType.ACCOUNT_NUMBER,
+                sources=frozenset({Source.COMPANY_DB}),
+                confidentiality=Confidentiality.CONFIDENTIAL,
+                run_id=self.run.run_id,
+                op="db_lookup",
+                created_at=self._clock.now_iso(),
+            )
+        )
+
+        return {
+            "found": True,
+            "vendor_handle": vendor_value.handle,
+            "vendor_id": vendor.vendor_id,
+            "status": vendor.status,
+            "domain_matches": str(domain.value) == vendor.domain.lower(),
+            "account_on_file_handle": account.handle,
+        }
+
+    def flag_for_review(self, handle: str, reason: str) -> dict[str, Any]:
+        """Record that a person should look at something."""
+        try:
+            flag = FlagReason(reason)
+        except ValueError:
+            flag = FlagReason.OTHER
+        self.flags.append((handle, str(flag)))
+        return {"flag_id": self._ids.new_id("flg"), "reason": str(flag)}
+
+    def open_bank_change_review(
+        self, vendor_handle: str, proposed_account_handle: str
+    ) -> dict[str, Any]:
+        """Open a human review of a proposed bank change. Nothing is changed here."""
+        self.reviews.append(vendor_handle)
+        return {"review_id": self._ids.new_id("rev")}
+
+    def export_vendor_master(self) -> dict[str, Any]:
+        """Produce a confidential export as a handle."""
+        export = self._store(
+            Labeled(
+                handle=self._ids.new_handle(),
+                value="vendor-master-export",
+                vtype=ValueType.DOCUMENT,
+                sources=frozenset({Source.COMPANY_DB}),
+                confidentiality=Confidentiality.CONFIDENTIAL,
+                run_id=self.run.run_id,
+                op="export_vendor_master",
+                created_at=self._clock.now_iso(),
+            )
+        )
+        return {"export_handle": export.handle}
+
+    # ----------------------------------------------------- consequential tools
+
+    def pay_vendor(
+        self,
+        vendor_handle: str,
+        account_handle: str,
+        amount_handle: str,
+        invoice_handle: str,
+        vendor_match_verified: bool = False,
+    ) -> dict[str, Any]:
+        """Attempt a payment. The enforcement point decides what actually happens."""
+        if not self._spend_call():
+            return {
+                "status": "DENIED",
+                "reason_code": "CALL_BUDGET_EXHAUSTED",
+                "determining_policies": [],
+            }
+
+        result = self._pep.pay_vendor(
+            self.run,
+            vendor_handle=vendor_handle,
+            account_handle=account_handle,
+            amount_handle=amount_handle,
+            invoice_handle=invoice_handle,
+            vendor_match_verified=vendor_match_verified,
+        )
+        payload: dict[str, Any] = {
+            "status": str(result.status),
+            "reason_code": str(result.reason_code),
+            "determining_policies": list(result.determining_policies),
+        }
+        if result.txn_id:
+            payload["txn_id"] = result.txn_id
+        if result.approval_id:
+            payload["approval_id"] = result.approval_id
+        if result.suggested_next:
+            payload["suggested_next"] = list(result.suggested_next)
+        return payload
+
+    def send_email(
+        self, recipient_handle: str, template_id: str, attachment_handles: list[str] | None = None
+    ) -> dict[str, Any]:
+        """Attempt to send a templated email."""
+        if not self._spend_call():
+            return {
+                "status": "DENIED",
+                "reason_code": "CALL_BUDGET_EXHAUSTED",
+                "determining_policies": [],
+            }
+
+        confidentiality = Confidentiality.PUBLIC
+        attachments = attachment_handles or []
+        for handle in attachments:
+            value = self._values.get(self.run.run_id, handle)
+            if value is not None and value.confidentiality is Confidentiality.CONFIDENTIAL:
+                confidentiality = Confidentiality.CONFIDENTIAL
+
+        result = self._pep.send_email(
+            self.run,
+            recipient_handle=recipient_handle,
+            template_id=template_id,
+            attachment_handles=attachments,
+            template_confidentiality=confidentiality,
+        )
+        return {
+            "status": str(result.status),
+            "reason_code": str(result.reason_code),
+            "determining_policies": list(result.determining_policies),
+        }

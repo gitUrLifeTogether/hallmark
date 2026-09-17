@@ -56,3 +56,9 @@ ignore_missing_imports = true
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+# Model-backed tests are opt-in: they need Ollama running and take minutes on a small
+# host. Run them with `pytest -m model`; the default suite stays fast and deterministic.
+addopts = "-m 'not model'"
+markers = [
+  "model: requires a running Ollama server and a pulled model",
+]

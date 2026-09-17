@@ -105,9 +105,40 @@ the planner and reader models never occupy memory at the same time.
 model load (seconds on this host), which will show up in bench latency numbers and must be
 reported honestly as a property of the hardware, not of Hallmark. Measured benefit is real:
 free RAM *rose* from 1,247 MB to 1,947 MB across the Ollama check, because the model
-unloaded as soon as the call returned. Bench concurrency stays at 1 (ADR-0004). If a later
-milestone needs both models hot, this is the first setting to revisit — on a larger host,
-drop it.
+unloaded as soon as the call returned. Bench concurrency stays at 1 (ADR-0004).
+
+**Superseded in part by ADR-0010** — `OLLAMA_KEEP_ALIVE=0` turned out to be unworkable for
+an agent loop. `OLLAMA_MAX_LOADED_MODELS=1` stands.
+
+## ADR-0010: Keep the model resident during a run, and use one model for both roles
+
+**Context:** Measured on this host with `qwen3:1.7b`: a cold call takes **5,887 ms**, and
+the two warm calls after it take **448 ms** and **360 ms** — a cold load costs roughly
+**fifteen times** a warm call. `OLLAMA_KEEP_ALIVE=0` (ADR-0007) unloads after every single
+call, so an agent loop pays that load on every step. A twenty-email run with up to eight
+tool calls per email would spend well over an hour loading weights.
+
+A second problem compounds it: with `OLLAMA_MAX_LOADED_MODELS=1`, a planner on `qwen3:4b`
+and a reader on `qwen3:1.7b` **evict each other on every alternation**, so the per-email
+sequence of planner, reader, planner pays a full reload at each switch.
+
+**Decision:** Pass `keep_alive` per request (10m for the planner, 5m for the reader) so
+weights stay resident for the duration of a run, and default `PLANNER_MODEL` and
+`READER_MODEL` to **the same model** on this host so the single model slot is never
+contended. `OLLAMA_MAX_LOADED_MODELS=1` stays, and the process-level `OLLAMA_KEEP_ALIVE=0`
+remains as the idle default so nothing is held between runs.
+
+**The planner/reader split does not weaken by sharing weights.** The separation is one of
+*capability*, not of model identity: the reader is invoked with no tools, its output must
+satisfy a JSON schema, every field is verified against the source, and everything it
+produces is stamped `MODEL_READER` and can never be trusted. Two roles on one set of
+weights have exactly the privileges their call sites give them. Using different models is
+still supported through config and is preferable on a larger host, purely for quality.
+
+**Consequences:** Runs become feasible on this hardware. Memory cost is real and measured:
+free RAM sits around 470 MB with the 1.4 GB model resident, so bench concurrency stays at
+1. README and bench results must state which model filled each role, since on this host
+they are the same one.
 
 ## ADR-0008: Report the most fundamental denial reason, not the first one
 
