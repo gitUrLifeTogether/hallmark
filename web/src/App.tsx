@@ -8,9 +8,10 @@
  * eventually disagree with the one that matters.
  */
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { DecisionCard } from "./components/DecisionCard";
 import { Approvals } from "./features/Approvals";
+import { SplitReplay } from "./features/SplitReplay";
 import { LineageGraph } from "./components/LineageGraph";
 import { SafeEmailViewer } from "./components/SafeEmailViewer";
 import {
@@ -23,10 +24,12 @@ import {
 } from "./lib/demoData";
 import { formatPaise } from "./lib/types";
 
-type View = "run" | "lineage" | "evidence" | "approvals" | "policies";
+type View =
+  "run" | "replay" | "lineage" | "evidence" | "approvals" | "policies";
 
 const TABS: { id: View; label: string }[] = [
   { id: "run", label: "Run" },
+  { id: "replay", label: "Split replay" },
   { id: "lineage", label: "Lineage" },
   { id: "evidence", label: "Evidence" },
   { id: "approvals", label: "Approvals" },
@@ -55,8 +58,35 @@ function Stat({
   );
 }
 
+const VIEW_IDS = new Set<string>([
+  "run",
+  "replay",
+  "lineage",
+  "evidence",
+  "approvals",
+  "policies",
+]);
+
+/** The view named in the URL, so a screen can be linked to and reloaded onto. */
+function viewFromHash(): View {
+  const candidate = window.location.hash.replace(/^#/, "");
+  return (VIEW_IDS.has(candidate) ? candidate : "run") as View;
+}
+
 export default function App() {
-  const [view, setView] = useState<View>("run");
+  const [view, setViewState] = useState<View>(viewFromHash);
+
+  const setView = (next: View) => {
+    setViewState(next);
+    window.location.hash = next;
+  };
+
+  useEffect(() => {
+    const onHashChange = () => setViewState(viewFromHash());
+    window.addEventListener("hashchange", onHashChange);
+    return () => window.removeEventListener("hashchange", onHashChange);
+  }, []);
+
   const [focus, setFocus] = useState<string | undefined>("dec_000094");
 
   return (
@@ -165,6 +195,8 @@ export default function App() {
           ))}
         </section>
       )}
+
+      {view === "replay" && <SplitReplay />}
 
       {view === "lineage" && (
         <section
