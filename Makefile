@@ -5,6 +5,9 @@ SHELL := /bin/bash
 -include .env
 export
 
+# Scripts import the package from the repository root.
+export PYTHONPATH := $(CURDIR)
+
 # --- LOCAL_ONLY guard --------------------------------------------------------
 # Refuse to run any AWS-touching target unless the endpoint is a local emulator.
 define require_local_endpoint
@@ -39,17 +42,33 @@ down: ## Stop LocalStack
 # samlocal's own launcher runs whatever `python` is first on PATH instead of the
 # interpreter in its tool environment, so boto3 appears missing. Call the shim with its
 # own interpreter. UV_LINK_MODE=copy is needed wherever the tree is on OneDrive.
+# samlocal's own launcher runs whatever `python` is first on PATH instead of the
+# interpreter in its tool environment, so boto3 appears missing. Call the shim with its
+# own interpreter. UV_LINK_MODE=copy is needed wherever the tree is on OneDrive.
 SAMLOCAL_PY := $(APPDATA)/uv/tools/aws-sam-cli-local/Scripts/python.exe
 SAMLOCAL_SHIM := $(USERPROFILE)/.local/bin/samlocal
 SAMLOCAL := UV_LINK_MODE=copy "$(SAMLOCAL_PY)" "$(SAMLOCAL_SHIM)"
 
-deploy-local: ## Build and deploy the SAM stack to LocalStack (idempotent)
+# Build outside the repository. A file sync client holds handles open inside it, the
+# build then fails with "Access is denied", and the deploy that follows happily ships the
+# PREVIOUS artifacts while reporting success. Building elsewhere avoids the whole class.
+SAM_BUILD_DIR := $(TEMP)/hallmark-sam-build
+
+deploy-local: ## Build and deploy the stack to the local emulator
 	$(require_local_endpoint)
-	@# A failed build leaves the previous artifacts in place and the deploy would ship
-	@# stale code, so clear them first.
-	rm -rf .aws-sam
-	$(SAMLOCAL) build
-	$(SAMLOCAL) deploy --stack-name hallmark --no-confirm-changeset 		--no-fail-on-empty-changeset --resolve-s3 --capabilities CAPABILITY_IAM
+	uv run python scripts/build_bundle.py
+	$(SAMLOCAL) build --template template.yaml --build-dir "$(SAM_BUILD_DIR)"
+	@# Only deploy the template the build just produced, never a stale one.
+	$(SAMLOCAL) deploy --template-file "$(SAM_BUILD_DIR)/template.yaml" 		--stack-name hallmark --no-confirm-changeset --no-fail-on-empty-changeset 		--resolve-s3 --capabilities CAPABILITY_IAM
+
+redeploy-local: ## Delete and recreate the stack (needed after a key schema change)
+	$(require_local_endpoint)
+	aws --endpoint-url=$$AWS_ENDPOINT_URL cloudformation delete-stack --stack-name hallmark
+	sleep 10
+	$(MAKE) deploy-local
+
+env: ## Print the stack outputs as shell exports, for tests and scripts
+	@uv run python scripts/stack_env.py
 
 seed: ## Load fixtures into LocalStack
 	$(require_local_endpoint)
@@ -58,9 +77,10 @@ seed: ## Load fixtures into LocalStack
 test: ## Unit + property + policy tests (in-memory adapters, no Docker needed)
 	uv run pytest -q tests/unit tests/property tests/policies
 
-e2e: ## End-to-end tests against LocalStack
+e2e: ## Contract and end-to-end tests against the deployed stack
 	$(require_local_endpoint)
-	uv run pytest -q tests/e2e
+	@# Table names come from the stack that exists, never from a guess.
+	eval "$$(uv run python scripts/stack_env.py)" && 		uv run pytest -q -m localstack tests/contract tests/e2e
 
 spike: ## Run the local platform feasibility spike
 	$(require_local_endpoint)

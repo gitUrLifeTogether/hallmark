@@ -1,0 +1,76 @@
+{
+  "Comment": "Pause an escalated action until a person decides, or the wait expires. The waitForTaskToken suffix and the $$.Task.Token context path are the platform's documented callback contract; the states and payloads are ours.",
+  "StartAt": "RecordPending",
+  "States": {
+    "RecordPending": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${ApprovalWorkerFunction}",
+        "Payload": {
+          "action": "record",
+          "approval.$": "$.approval"
+        }
+      },
+      "ResultPath": "$.recorded",
+      "Next": "AwaitDecision"
+    },
+    "AwaitDecision": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke.waitForTaskToken",
+      "Parameters": {
+        "FunctionName": "${ApprovalWorkerFunction}",
+        "Payload": {
+          "action": "park",
+          "taskToken.$": "$$.Task.Token",
+          "approvalId.$": "$.approval.approvalId"
+        }
+      },
+      "TimeoutSecondsPath": "$.timeoutSeconds",
+      "ResultPath": "$.decision",
+      "Next": "ReAuthorize",
+      "Catch": [
+        {
+          "ErrorEquals": ["States.Timeout"],
+          "ResultPath": "$.error",
+          "Next": "Expired"
+        }
+      ]
+    },
+    "ReAuthorize": {
+      "Comment": "An approval is permission to ask again with a human attached, not permission to act. Facts are recomputed here, so a vendor blocked or an invoice paid since the request still changes the answer.",
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${ApprovalWorkerFunction}",
+        "Payload": {
+          "action": "reauthorize",
+          "approvalId.$": "$.approval.approvalId",
+          "decision.$": "$.decision"
+        }
+      },
+      "ResultSelector": {
+        "outcome.$": "$.Payload.outcome"
+      },
+      "ResultPath": "$.result",
+      "Next": "Done"
+    },
+    "Expired": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${ApprovalWorkerFunction}",
+        "Payload": {
+          "action": "expire",
+          "approvalId.$": "$.approval.approvalId"
+        }
+      },
+      "ResultPath": "$.result",
+      "End": true
+    },
+    "Done": {
+      "Type": "Pass",
+      "End": true
+    }
+  }
+}

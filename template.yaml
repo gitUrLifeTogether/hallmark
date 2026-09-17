@@ -13,6 +13,12 @@ Parameters:
   TenantId:
     Type: String
     Default: kestrel
+  JwtSigningSecret:
+    Type: String
+    # Demo signing key for locally issued tokens. Passed in rather than defaulted so a
+    # deployment cannot silently run with a well-known secret.
+    Default: change-me-for-local-dev-only
+    NoEcho: true
   OllamaHost:
     Type: String
     # Lambda containers reach the model server on the host, not on their own loopback.
@@ -226,14 +232,27 @@ Resources:
       EndpointConfiguration:
         Type: REGIONAL
 
-  HealthFunction:
+  # One function serving the whole console API. The surface is small, and a single
+  # cold start is cheaper than one per endpoint on a laptop.
+  ApiFunction:
     Type: AWS::Serverless::Function
     Properties:
-      CodeUri: handlers/api/
-      Handler: health.handler
+      # The staged bundle, not handlers/api directly: the shared kernel is copied in
+      # by scripts/build_bundle.py. See that file for why this is not a layer.
+      CodeUri: .bundle/api/
+      Handler: app.handler
+      Environment:
+        Variables:
+          JWT_SIGNING_SECRET: !Ref JwtSigningSecret
       Policies:
-        - DynamoDBReadPolicy:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref ApprovalsTable
+        - DynamoDBCrudPolicy:
             TableName: !Ref RunsTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref DecisionsTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref VendorTable
       Events:
         Health:
           Type: Api
@@ -241,6 +260,24 @@ Resources:
             RestApiId: !Ref HallmarkApi
             Path: /health
             Method: GET
+        Login:
+          Type: Api
+          Properties:
+            RestApiId: !Ref HallmarkApi
+            Path: /auth/login
+            Method: POST
+        ListApprovals:
+          Type: Api
+          Properties:
+            RestApiId: !Ref HallmarkApi
+            Path: /approvals
+            Method: GET
+        DecideApproval:
+          Type: Api
+          Properties:
+            RestApiId: !Ref HallmarkApi
+            Path: /approvals/{approvalId}/decision
+            Method: POST
 
 Outputs:
   ApiId:

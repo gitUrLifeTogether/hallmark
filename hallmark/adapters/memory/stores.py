@@ -9,7 +9,9 @@ from __future__ import annotations
 import itertools
 from typing import Any
 
+from hallmark.application.approvals import PendingAction
 from hallmark.domain.lineage import LineageEdge
+from hallmark.domain.statuses import ApprovalStatus
 from hallmark.domain.values import Labeled
 from hallmark.ports.repositories import (
     InboxEmail,
@@ -117,3 +119,36 @@ class InMemoryInboxRepository:
 
     def get(self, email_id: str) -> InboxEmail | None:
         return next((e for e in self._emails if e.email_id == email_id), None)
+
+
+class InMemoryApprovalStore:
+    """Approvals in memory, with the same conditional transition as the real store."""
+
+    def __init__(self) -> None:
+        self._actions: dict[str, PendingAction] = {}
+
+    def put(self, action: PendingAction) -> None:
+        self._actions[action.approval_id] = action
+
+    def get(self, approval_id: str) -> PendingAction | None:
+        return self._actions.get(approval_id)
+
+    def pending(self) -> list[PendingAction]:
+        return [a for a in self._actions.values() if a.status is ApprovalStatus.PENDING]
+
+    def transition(
+        self,
+        approval_id: str,
+        expected: ApprovalStatus,
+        target: ApprovalStatus,
+        by: str,
+        at: str,
+    ) -> bool:
+        """Move only if still in `expected`, mirroring a conditional write."""
+        action = self._actions.get(approval_id)
+        if action is None or action.status is not expected:
+            return False
+        action.status = target
+        action.decided_by = by
+        action.decided_at = at
+        return True

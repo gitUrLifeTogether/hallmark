@@ -47,3 +47,9 @@ m2_model_run.json
 
 # TypeScript incremental build cache
 *.tsbuildinfo
+
+# Staged Lambda layer, rebuilt on every deploy
+.layer/
+
+# Staged function bundles, rebuilt on every deploy
+.bundle/

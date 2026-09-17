@@ -328,6 +328,57 @@ regenerable fixtures and `make seed` is idempotent for exactly this reason.
 The alternative is a stack that reports health while quietly serving the wrong schema, which
 is worse than a failure because nobody goes looking.
 
+## ADR-0016: Bundle the shared code per function instead of using a layer
+
+**Context:** The handlers import the security kernel, and SAM packages only what sits under
+a function's `CodeUri`. A Lambda layer is the right answer and is what the production
+design would use. Two attempts failed against the local emulator: with
+`BuildMethod: python3.12` the build produced `python/python/<package>`, and without it the
+layer deployed and attached (65 KB, visible in `get-function-configuration`) but the
+runtime still reported `No module named 'hallmark'`.
+
+**Decision:** Stage each function's bundle with `scripts/build_bundle.py`, copying the
+shared packages and the Cedar policies in beside the handler, and point `CodeUri` at the
+staged directory. The policies travel with the code deliberately: a function authorizing
+against a stale copy of the rules would be worse than one that fails to start.
+
+**Consequences:** Each function carries its own copy, which is a cost worth paying to stop
+chasing an emulator limitation. Moving to a layer later is a `CodeUri` change plus a
+`Layers` entry, with no application change, because nothing imports differently.
+
+## ADR-0017: Build outside the repository, and gate the deploy on the build
+
+**Context:** This tree lives inside a file sync client's folder. `sam build` intermittently
+fails with `[WinError 5] Access is denied` on `.aws-sam\build\...` while the client holds a
+handle. The failure is not the problem. The problem is what follows: the deploy step runs
+anyway, ships the **previous** build output, and reports
+`Successfully created/updated stack`. An auth fix was "deployed" twice this way and the old
+code kept running.
+
+**Decision:** Build into `$(TEMP)/hallmark-sam-build`, outside the synced tree, and deploy
+`--template-file` from that directory so only the artifacts the build just produced can
+reach the stack. `make deploy-local` does both. `scripts/build_bundle.py` retries its
+cleanup and raises rather than silently reusing a stale bundle.
+
+**Consequences:** One more directory to reason about, and a deploy that cannot quietly ship
+yesterday's code. This is the third instance of the same lesson recorded in ADR-0015: the
+success message is not evidence.
+
+## ADR-0018: Authentication failures are their own error type
+
+**Context:** The API mapped errors to status codes by type, with a special case that
+checked whether the word "token" appeared in the message. A forged token raises
+`bad signature`, which does not contain that word, so it returned **400 instead of 401**.
+The e2e suite caught it on its first run.
+
+**Decision:** Add `AuthenticationError` to the hierarchy and raise it for every token
+fault, collapsing the distinct causes into one. The boundary maps the type, never the
+message.
+
+**Consequences:** A caller learns only that authentication failed, not whether the
+signature, the shape or the expiry was wrong, which is one less thing to probe. Matching on
+error text was fragile in a way that only showed up under a case nobody had written down.
+
 ## ADR-0006: Use `aws --endpoint-url` rather than `awslocal`
 
 **Context:** `awslocal` (a Python wrapper around the AWS CLI) segfaulted on every call under

@@ -42,6 +42,8 @@ mccabe.max-complexity = 10
 "fixtures/**" = ["S105", "S106"]
 # Throwaway M0 spike functions; the URL they open is a localhost address we construct.
 "spike/**" = ["S310"]
+# The e2e client builds its own URL against the local stack, not an untrusted one.
+"tests/e2e/**" = ["S310"]
 
 [tool.mypy]
 python_version = "3.12"
@@ -60,6 +62,7 @@ pythonpath = ["."]
 # Model-backed tests are opt-in: they need Ollama running and take minutes on a small
 # host. Run them with `pytest -m model`; the default suite stays fast and deterministic.
 addopts = "-m 'not model and not localstack'"
+asyncio_mode = "auto"
 markers = [
   "model: requires a running Ollama server and a pulled model",
   "localstack: requires the stack deployed to a running local emulator",

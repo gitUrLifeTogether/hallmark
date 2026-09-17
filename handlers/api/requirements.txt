@@ -1,0 +1,3 @@
+# Installed into the function bundle by the build. Kept minimal: the API does not need
+# the model SDKs, only the domain and the AWS client.
+boto3>=1.35

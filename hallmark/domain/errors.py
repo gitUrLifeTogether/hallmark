@@ -13,6 +13,15 @@ class ValidationError(HallmarkError):
     """Input failed a structural or type check."""
 
 
+class AuthenticationError(HallmarkError):
+    """The caller could not be identified.
+
+    Distinct from ValidationError so the boundary can answer 401 without inspecting an
+    error message. Callers must not learn which part of a token failed; telling an
+    attacker whether a signature or an expiry was wrong is free information.
+    """
+
+
 class ConfigurationError(HallmarkError):
     """The process is configured in a way that is unsafe or unusable.
 

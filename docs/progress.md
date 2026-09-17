@@ -107,16 +107,45 @@ all twelve pre-commit hooks clean.
 - Console shell at `web/` — Vite + React, strict TypeScript, design tokens for both
   themes, and the provenance component. `npm run dev` serves on 5173.
 
+## M3 - Local platform: COMPLETE
+
+The stack deploys through CloudFormation and serves real HTTP.
+
+**Deployed:** 7 DynamoDB tables (values, lineage with a reverse index, decisions, runs,
+versioned vendors with a GSTIN index, ledger with an invoice index, approvals), an S3
+bucket, an EventBridge bus feeding an SQS queue, a REST API and its function.
+
+**Adapters behind the existing ports:** DynamoDB stores and repositories, an S3 inbox, an
+EventBridge publisher, a DynamoDB approval store whose status change is a conditional
+write, and locally signed tokens standing in for an identity provider.
+
+**Verified against the deployed stack, 24 tests:**
+
+- 10 contract tests holding the real adapters to the same expectations as the in-memory
+  ones. They caught a single-key table declared against a two-key adapter on first run.
+- 14 end-to-end tests over HTTP: auth required, forged tokens refused, task tokens never
+  crossing the API, role limits enforced, the role taken from the token and not the request
+  body, and an approval decidable exactly once.
+
+**The approval guarantee holds end to end:** an AP lead is refused above their limit, a
+controller succeeds on the same item, and a second decision on a decided approval is
+refused by the conditional write rather than racing.
+
+**Commands:** `make deploy-local`, `make seed`, `make env`, `make e2e`.
+
+## Carried forward
+
+- The planner does not yet run as a deployed function; runs are driven in-process. The
+  episode shape already suits a Map over emails when that lands.
+- `send_email` and `export_vendor_master` are still not exposed to the model planner, so
+  the exfiltration path is exercised only by the scripted run.
+
 ## Not started
 
-- M3 platform work: a SAM template for the real stack, DynamoDB/S3/Step Functions
-  adapters, the realtime gateway, seeded demo users.
 - M4 console screens, M5 attack bench, M6 hardening and the README.
 
 ## Next steps
 
-1. M3 — validate `samlocal` with CloudFormation first, since it is still unproven, then
-   build the platform behind the existing ports.
-2. Expose `send_email` and `export_vendor_master` to the model planner so the
-   exfiltration case can be exercised model-driven rather than only by the scripted run.
-3. Re-measure episode latency on an idle machine before any timing claim is published.
+1. M4 - the console screens, on the tokens and provenance component already in `web/`.
+2. M5 - the attack bench.
+3. Re-measure episode latency on an idle machine before publishing any timing.
