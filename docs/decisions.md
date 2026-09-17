@@ -233,6 +233,60 @@ A full twenty-email model run is impractical here. The full inbox stays covered
 deterministically by the scripted planner, and model-backed results are reported on this
 subset with the model named. Which planner produced which numbers is stated every time.
 
+## ADR-0012: The two M3 unknowns are resolved, and the API must be REST v1
+
+Both risks the feasibility spike deliberately left open are now settled by deploying the
+skeleton stack for real.
+
+**`samlocal` with CloudFormation works.** `samlocal build` followed by `samlocal deploy`
+creates the stack, and the deployed Lambda invokes and returns correctly. The spike had
+created resources directly through the CLI to conserve memory, leaving this untested; it
+is now proven, so the platform can be described in one template rather than a pile of
+imperative calls.
+
+**HTTP API (v2) is unusable here; REST API (v1) works end to end.** Deploying an
+`AWS::Serverless::HttpApi` appears to succeed, and CloudFormation even reports
+`CREATE_COMPLETE` — but the message beside it reads *"Resource type
+AWS::ApiGatewayV2::Stage is not supported but was deployed as a fallback"*, the stack
+output URL comes back as `https://unknown.execute-api.amazonaws.com:4566/`, and any call
+to the service fails with *"The API for service 'apigatewayv2' is either not included in
+your current license plan or has not yet been emulated"*. A green deploy meant nothing
+here, which is worth remembering before trusting any other `CREATE_COMPLETE`.
+
+Switching the events to `Type: Api` gives REST v1, which is fully emulated. Verified by
+HTTP, three URL forms, all returning `200 {"status": "ok", "service": "hallmark"}`:
+
+```
+http://localhost:4566/restapis/<id>/dev/_user_request_/hello
+http://<id>.execute-api.localhost.localstack.cloud:4566/dev/hello
+http://localhost:4566/_aws/execute-api/<id>/dev/hello
+```
+
+**Decision:** the API is REST v1 with a Lambda authorizer over locally signed JWTs. This
+is also the reason the realtime path is a small gateway process on the host rather than an
+API Gateway WebSocket, which belongs to the same unavailable service family.
+
+**Consequences:** the template stays close to the production shape, since REST v1 is a real
+API Gateway flavour rather than a local-only substitute. Moving to HTTP API later is a
+template change, not an application change, because handlers receive an event shape from
+the framework rather than parsing it themselves.
+
+## ADR-0013: Two Windows toolchain faults worth remembering
+
+**`samlocal` ships a broken launcher.** `samlocal.bat` runs `python "%~dp0\samlocal"`,
+which picks up whatever `python` is first on `PATH` rather than the interpreter inside its
+own tool environment. The result is `ModuleNotFoundError: No module named 'boto3'` even
+though boto3 is installed in that environment. Invoke the shim with its own interpreter
+instead: `%APPDATA%\uv\tools\aws-sam-cli-local\Scripts\python.exe %USERPROFILE%\.local\bin\samlocal`.
+
+**OneDrive breaks two things.** Package installs fail with *"cannot be performed on a file
+with incompatible hardlinks"*, fixed with `UV_LINK_MODE=copy`. And `samlocal build` fails
+with `[WinError 5] Access is denied: .aws-sam\build\...` when the sync client holds a file
+open. The dangerous part is the second one: the build fails, the deploy proceeds with the
+**previous** build output, and the stack silently deploys stale code. Delete `.aws-sam`
+before a build whenever the previous one failed, and never trust a deploy that followed a
+failed build.
+
 ## ADR-0006: Use `aws --endpoint-url` rather than `awslocal`
 
 **Context:** `awslocal` (a Python wrapper around the AWS CLI) segfaulted on every call under

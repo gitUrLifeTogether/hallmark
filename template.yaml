@@ -26,6 +26,16 @@ Globals:
         TENANT_ID: !Ref TenantId
 
 Resources:
+  # REST API (v1), not HTTP API (v2). The emulator this runs against does not provide
+  # apigatewayv2 on the free plan: CloudFormation reports the stage as "deployed as a
+  # fallback" and every call to the service then fails. REST v1 is fully emulated.
+  HallmarkApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: !Ref Stage
+      EndpointConfiguration:
+        Type: REGIONAL
+
   HelloFunction:
     Type: AWS::Serverless::Function
     Properties:
@@ -33,12 +43,16 @@ Resources:
       Handler: hello.handler
       Events:
         Hello:
-          Type: HttpApi
+          Type: Api
           Properties:
+            RestApiId: !Ref HallmarkApi
             Path: /hello
             Method: GET
 
 Outputs:
+  ApiId:
+    Description: REST API id, for building local URLs
+    Value: !Ref HallmarkApi
   ApiUrl:
-    Description: Base URL of the HTTP API
-    Value: !Sub "https://${ServerlessHttpApi}.execute-api.${AWS::Region}.amazonaws.com"
+    Description: Base URL of the REST API
+    Value: !Sub "https://${HallmarkApi}.execute-api.${AWS::Region}.amazonaws.com/${Stage}"

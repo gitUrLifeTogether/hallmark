@@ -36,10 +36,20 @@ up: ## Start LocalStack and wait for it to become healthy
 down: ## Stop LocalStack
 	docker compose down
 
+# samlocal's own launcher runs whatever `python` is first on PATH instead of the
+# interpreter in its tool environment, so boto3 appears missing. Call the shim with its
+# own interpreter. UV_LINK_MODE=copy is needed wherever the tree is on OneDrive.
+SAMLOCAL_PY := $(APPDATA)/uv/tools/aws-sam-cli-local/Scripts/python.exe
+SAMLOCAL_SHIM := $(USERPROFILE)/.local/bin/samlocal
+SAMLOCAL := UV_LINK_MODE=copy "$(SAMLOCAL_PY)" "$(SAMLOCAL_SHIM)"
+
 deploy-local: ## Build and deploy the SAM stack to LocalStack (idempotent)
 	$(require_local_endpoint)
-	samlocal build
-	samlocal deploy --no-confirm-changeset --no-fail-on-empty-changeset --resolve-s3
+	@# A failed build leaves the previous artifacts in place and the deploy would ship
+	@# stale code, so clear them first.
+	rm -rf .aws-sam
+	$(SAMLOCAL) build
+	$(SAMLOCAL) deploy --stack-name hallmark --no-confirm-changeset 		--no-fail-on-empty-changeset --resolve-s3 --capabilities CAPABILITY_IAM
 
 seed: ## Load fixtures into LocalStack
 	$(require_local_endpoint)
