@@ -72,7 +72,9 @@ env: ## Print the stack outputs as shell exports, for tests and scripts
 
 seed: ## Load fixtures into LocalStack
 	$(require_local_endpoint)
-	uv run python -m fixtures.seed
+	@# Table and bucket names come from the stack that exists, as in e2e. Without this
+	@# the target fails on a fresh emulator, which is exactly when it is needed.
+	eval "$$(uv run python scripts/stack_env.py)" && 		uv run python -m fixtures.seed
 
 test: ## Unit + property + policy tests (in-memory adapters, no Docker needed)
 	uv run pytest -q tests/unit tests/property tests/policies
