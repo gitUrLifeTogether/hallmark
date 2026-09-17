@@ -1,3 +1,6 @@
+# Each repo/rev/hook-id triple below is the invocation each tool documents for
+# pre-commit (gitleaks, ruff, mypy, prettier, pre-commit-hooks). Revisions are pinned
+# deliberately; the selection of hooks and their file filters are ours.
 repos:
   - repo: https://github.com/gitleaks/gitleaks
     rev: v8.21.2

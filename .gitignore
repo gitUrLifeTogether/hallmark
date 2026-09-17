@@ -40,3 +40,6 @@ Thumbs.db
 spike/functions/*/cedarpy/
 spike/functions/*/*.dist-info/
 spike/functions/*/.lock
+
+# Local spec, kept on disk but never tracked
+CLAUDE.md

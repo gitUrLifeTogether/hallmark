@@ -1,5 +1,5 @@
 {
-  "Comment": "Spike check 4: pause on a task token until an approver resumes us (CLAUDE.md §11.2).",
+  "Comment": "Spike check 4: pause on a task token until an approver resumes us. The waitForTaskToken resource suffix and the $$.Task.Token context path are AWS's documented callback contract; the states and payload shape are ours.",
   "StartAt": "AwaitApproval",
   "States": {
     "AwaitApproval": {

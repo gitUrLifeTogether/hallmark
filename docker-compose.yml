@@ -1,3 +1,7 @@
+# The service block below (port 4566, the docker.sock mount, the /var/lib/localstack
+# volume and the _localstack/health check) follows LocalStack's own documented
+# docker-compose example: https://docs.localstack.cloud/getting-started/installation/
+# The environment tuning and the healthcheck timings are ours.
 services:
   localstack:
     # Pinned tag (CLAUDE.md §0.0.3.2). Bump deliberately, never with :latest.

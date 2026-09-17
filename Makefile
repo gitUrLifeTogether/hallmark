@@ -21,7 +21,8 @@ endef
 .PHONY: help up down deploy-local seed test e2e console spike fmt lint check
 
 help: ## Show available targets
-	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}'
+	@echo "Hallmark local development targets:"
+	@sed -n 's/^\([a-z][a-z0-9-]*\):[^#]*## /  \1 -- /p' $(MAKEFILE_LIST)
 
 up: ## Start LocalStack and wait for it to become healthy
 	@if [ -z "$$LOCALSTACK_AUTH_TOKEN" ]; then echo "REFUSING: LOCALSTACK_AUTH_TOKEN unset (see .env.example)."; exit 1; fi
