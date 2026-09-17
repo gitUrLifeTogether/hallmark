@@ -133,6 +133,34 @@ Short version of the limits: a malicious user, a compromised approver, a comprom
 and availability attacks are all out of scope, and selection influence is a real residual
 risk that is mitigated rather than eliminated.
 
+## Architecture
+
+Diagrams for both the local stack and the cloud design it was shaped for, and what moving
+between them would actually cost: **[docs/architecture.md](docs/architecture.md)**.
+
+Everything runs on one laptop, built from open source and open-weight models:
+
+| | Used for |
+|---|---|
+| [Strands Agents](https://github.com/strands-agents/sdk-python) | The planner's agent loop and tool definitions |
+| [Cedar](https://www.cedarpolicy.com/) via `cedarpy` | Policy evaluation — the same `.cedar` files a hosted policy service would load |
+| [Ollama](https://ollama.com/) | Serving both models locally |
+| AWS SAM | One template for the whole stack |
+| [LocalStack](https://localstack.cloud/) | Lambda, API Gateway, DynamoDB, S3, EventBridge and SQS, locally |
+| FastAPI | The realtime gateway, and the safe renderer's host |
+| [nh3](https://github.com/messense/nh3) | HTML sanitisation in the safe renderer |
+| React + Vite | The console |
+
+**Models and hardware.** Planner and reader both run `qwen3:1.7b` through Ollama on an 8 GB
+machine with no discrete GPU. A larger planner model would raise utility and change nothing
+about the guarantee — the labels, the enforcement point, the policies and the canary test
+hold with any model, which is the point of not putting security in the model.
+
+**The bench numbers do not involve a model at all**; both configurations are driven by a
+deterministic planner, so they measure the enforcement layer rather than model behaviour. A
+separate model-backed run is recorded in [docs/decisions.md](docs/decisions.md) — in it the
+planner *was* fooled, attempted the payment, and was refused.
+
 ## Running it
 
 Everything runs locally. No cloud account, no bill.
@@ -195,6 +223,41 @@ Sources and links: **[docs/sources.md](docs/sources.md)**.
 - Invention of the dual-LLM or CaMeL ideas
 - That the company, vendors, accounts or payments are real
 - That the baseline represents any particular commercial product
+
+## What I learned building it
+
+**A clean result is a reason to look harder, not to stop.** The first bench reported a
+perfect defence. It was wrong: several exfiltration scenarios were unreachable, because the
+agent took the invoice path and never attempted the attack, and an attack never attempted
+was being scored as one successfully defended. There is now a test asserting the
+unprotected agent actually attempts every scenario. The number barely moved; the evidence
+behind it changed completely.
+
+**Tests can pass for the wrong reason.** The first acceptance test was green and worthless
+— the scripted planner always used the vendor-master account, so the enforcement point
+never once received an untrusted one. And all seven realtime gateway tests passed because
+the fake socket was hashable, while the real one is not. Both had to fail before they were
+worth anything.
+
+**Fail-closed has to be checked as a property, not a path.** Reviewing the code for it
+found nothing. Deliberately breaking each dependency in turn — the policy engine, the
+vendor repository, the ledger — found a real bug: a failing event publisher propagated out
+*after* the ledger write, so a retrying caller could pay twice. Telemetry is not part of
+the guarantee, and it should never have been able to reach the decision path.
+
+**A guard is not an ordinary boolean.** `LOCAL_ONLY=ture` disabled the protection, because
+the flag treated anything unrecognised as false. A feature flag can do that. A guard
+cannot: the failure modes are not symmetrical, and a typo should not silently turn it off.
+
+**The infrastructure lies more than the code does.** A deploy reported `CREATE_COMPLETE`
+for an API that was not emulated at all. Another reported success while shipping the
+previous build's artifacts. A third succeeded and changed nothing, because a table's key
+schema cannot be altered in place. Each cost real time, and each is written up in
+[docs/decisions.md](docs/decisions.md) rather than quietly fixed.
+
+**Layering only holds if something enforces it.** The architecture test caught two real
+violations that review had passed over. Writing a test that cannot fail is easy; the useful
+step was confirming it actually failed when the rule was broken.
 
 ## Licence
 

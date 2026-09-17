@@ -22,7 +22,7 @@ the same security kernel serves both.
 | Policy decisions | Cedar in-process (`cedarpy`) | a hosted policy service, same `.cedar` files |
 | Compute | Lambda on LocalStack | Lambda |
 | State | DynamoDB and S3 on LocalStack | DynamoDB and S3 |
-| Workflows | Step Functions on LocalStack | Step Functions |
+| Approvals | application code, conditional write | Step Functions, task tokens |
 
 The right-hand column is **not provisioned**. Moving to it means writing adapters behind
 the existing ports, not changing the kernel. `Authorizer` is the clearest example: it is
