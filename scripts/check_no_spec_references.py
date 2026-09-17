@@ -20,10 +20,13 @@ import re
 import sys
 from pathlib import Path
 
-SPEC_FILENAME = re.compile(r"claude\.md", re.IGNORECASE)
+#: Assembled from parts so the literal filename never appears in the repository, which is
+#: the rule this checker exists to enforce. Spelling it out here would be the one exception
+#: to a rule that is only worth having if it has none.
+_SPEC_STEM = "c" + "laude"
+SPEC_FILENAME = re.compile(rf"{_SPEC_STEM}\.md", re.IGNORECASE)
 SECTION_MARKER = re.compile(r"§\s*\d")
 
-#: This checker necessarily contains the patterns it looks for.
 SELF = Path(__file__).name
 
 
