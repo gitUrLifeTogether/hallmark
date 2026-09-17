@@ -16,8 +16,16 @@ import asyncio
 import contextlib
 import json
 import logging
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from typing import Any
+
+# Imported at module scope on purpose. This module uses postponed annotation evaluation,
+# so a handler's annotations are strings that the framework resolves against the module's
+# globals. Importing WebSocket inside the factory left "WebSocket" unresolvable, and the
+# framework silently fell back to treating the parameter as a required query string --
+# every handshake was then rejected with a bare 403 and the handler never ran.
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 
 logger = logging.getLogger(__name__)
 
@@ -29,18 +37,27 @@ MAX_MESSAGES_PER_POLL = 10
 
 @dataclass
 class Subscribers:
-    """Connected browsers, optionally filtered to one run."""
+    """Connected browsers, optionally filtered to one run.
 
-    sockets: dict[Any, str | None] = field(default_factory=dict)
+    Held as a list of pairs rather than a dict keyed by socket. A Starlette `WebSocket`
+    extends `HTTPConnection`, which is a `Mapping`, so it defines equality without a hash
+    and cannot be a dict key: using one closes the connection the instant it is accepted.
+    """
+
+    entries: list[tuple[Any, str | None]] = field(default_factory=list)
 
     def add(self, socket: Any, run_id: str | None = None) -> None:
-        self.sockets[socket] = run_id
+        self.entries.append((socket, run_id))
 
     def remove(self, socket: Any) -> None:
-        self.sockets.pop(socket, None)
+        # Identity, not equality: two sockets could compare equal as mappings.
+        self.entries = [entry for entry in self.entries if entry[0] is not socket]
 
     def interested_in(self, run_id: str) -> list[Any]:
-        return [s for s, wanted in self.sockets.items() if wanted in (None, run_id)]
+        return [socket for socket, wanted in self.entries if wanted in (None, run_id)]
+
+    def __len__(self) -> int:
+        return len(self.entries)
 
 
 class EventGateway:
@@ -126,10 +143,6 @@ class EventGateway:
 
 def create_app(sqs_client: Any, queue_url: str) -> Any:
     """Build the FastAPI application hosting the gateway."""
-    from contextlib import asynccontextmanager
-
-    from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-
     gateway = EventGateway(sqs_client, queue_url)
 
     @asynccontextmanager
@@ -149,9 +162,14 @@ def create_app(sqs_client: Any, queue_url: str) -> Any:
         return {"status": "ok", "forwarded": gateway.forwarded}
 
     @app.websocket("/events")
-    async def events(socket: WebSocket, runId: str | None = None) -> None:
+    async def events(socket: WebSocket) -> None:
+        # Read the filter straight off the request rather than declaring it as a typed
+        # parameter: the framework's dependency resolution rejects the handshake outright
+        # on a websocket route, and a 403 with no body is a miserable thing to debug.
+        run_id = socket.query_params.get("runId") or None
+
         await socket.accept()
-        gateway.subscribers.add(socket, runId)
+        gateway.subscribers.add(socket, run_id)
         try:
             while True:
                 await socket.receive_text()

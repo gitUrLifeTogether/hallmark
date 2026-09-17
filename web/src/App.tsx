@@ -10,10 +10,10 @@
 
 import { useState } from "react";
 import { DecisionCard } from "./components/DecisionCard";
+import { Approvals } from "./features/Approvals";
 import { LineageGraph } from "./components/LineageGraph";
 import { SafeEmailViewer } from "./components/SafeEmailViewer";
 import {
-  APPROVALS,
   ATTACK_EMAIL,
   DECISIONS,
   LINEAGE_EDGES,
@@ -215,60 +215,7 @@ export default function App() {
         </section>
       )}
 
-      {view === "approvals" && (
-        <section style={{ display: "grid", gap: 12 }}>
-          {APPROVALS.map((approval) => (
-            <article
-              key={approval.approvalId}
-              style={{
-                background: "var(--surface)",
-                border: "1px solid var(--rule)",
-                borderRadius: "var(--radius-lg)",
-                padding: 20,
-                display: "grid",
-                gap: 10,
-              }}
-            >
-              <div
-                style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  flexWrap: "wrap",
-                  gap: 10,
-                }}
-              >
-                <strong className="tabular" style={{ fontSize: 21 }}>
-                  {formatPaise(approval.amountPaise)}
-                </strong>
-                <span
-                  style={{
-                    fontSize: 12,
-                    color: "var(--pending)",
-                    fontWeight: 600,
-                  }}
-                >
-                  {approval.requiredRole} REQUIRED
-                </span>
-              </div>
-              <p style={{ margin: 0, fontSize: 14, color: "var(--ink-2)" }}>
-                Above the auto-approve limit. The destination is the account on
-                file, so a person can approve this one.
-              </p>
-              <code
-                className="mono"
-                style={{ fontSize: 12, color: "var(--ink-3)" }}
-              >
-                {approval.approvalId}
-              </code>
-            </article>
-          ))}
-          <p style={{ margin: 0, fontSize: 13, color: "var(--ink-3)" }}>
-            Approving re-runs the checks with a person attached. It does not
-            execute anything directly, so a refusal nobody can lift stays
-            refused.
-          </p>
-        </section>
-      )}
+      {view === "approvals" && <Approvals />}
 
       {view === "policies" && (
         <section style={{ display: "grid", gap: 12 }}>

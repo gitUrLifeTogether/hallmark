@@ -53,3 +53,6 @@ m2_model_run.json
 
 # Staged function bundles, rebuilt on every deploy
 .bundle/
+
+# Written from the deployed stack outputs
+web/.env.local

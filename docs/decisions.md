@@ -379,6 +379,60 @@ message.
 signature, the shape or the expiry was wrong, which is one less thing to probe. Matching on
 error text was fragile in a way that only showed up under a case nobody had written down.
 
+## ADR-0019: Postponed annotations plus a local import silently broke the websocket
+
+**Context:** Every websocket handshake to the realtime gateway was rejected with a bare
+`HTTP 403`. The handler never ran, raised nothing, and logged nothing. The route was
+registered and visible in the route table. An identical handler on a different application
+worked, and so did one added to the *same* application from outside the factory.
+
+**Cause:** the module uses `from __future__ import annotations`, so every annotation is a
+string the framework resolves against the module's globals. `WebSocket` was imported
+**inside** the factory function, so `"WebSocket"` was unresolvable at module scope. The
+framework did not complain. It fell back to treating `socket` as an ordinary required query
+parameter, found it missing, and closed the connection before the handler was ever called.
+The server then answered the handshake with 403, which is what it does whenever an
+application closes a websocket without accepting it.
+
+Asking the framework what it had built was what finally showed it:
+
+```
+route /events: query_params=['socket'] ws_param=None    <- wrong
+route /plain:  query_params=[]         ws_param=socket  <- right
+```
+
+**Decision:** import `FastAPI`, `WebSocket` and `WebSocketDisconnect` at module scope, with
+a comment saying why they cannot be moved back inside the factory.
+
+**Consequences:** the gateway works, and the whole path is verified end to end: an
+enforcement decision reaches a browser socket through the event bus and the queue carrying
+each argument's provenance. The wider lesson is the one this cost the most time to learn —
+several plausible hypotheses were tested and discarded (an unhashable socket, a return
+annotation, the lifespan, the emulator) before inspecting what the framework had actually
+built from the signature. When a framework silently reinterprets a declaration, ask it what
+it thinks the declaration means rather than guessing.
+
+**A second fault made this much slower to find.** Repeatedly, a "restarted" gateway had not
+restarted: the previous process still held the port, the new one failed to bind, and the
+health endpoint answered from stale code. Several rounds of debugging were spent on a
+process that did not contain the change being tested. Free the port and assert zero
+listeners before concluding anything from a running server.
+
+## ADR-0020: A test double that is easier to use than the real thing proves nothing
+
+**Context:** The gateway held subscribers in a dictionary keyed by the socket. The real
+`WebSocket` extends `HTTPConnection`, which is a `Mapping`, so it defines equality without
+a hash and **cannot be a dictionary key**. Every unit test passed, because the fake socket
+was a plain object and therefore hashable.
+
+**Decision:** make the double share the constraint by setting `__hash__ = None` on it, and
+keep subscribers in a list of pairs. There is now a test asserting the double is unhashable,
+so the constraint cannot be quietly dropped later.
+
+**Consequences:** the suite would now fail on this class of fault instead of passing.
+Whenever a double is more permissive than the thing it replaces, the tests measure the
+double.
+
 ## ADR-0006: Use `aws --endpoint-url` rather than `awslocal`
 
 **Context:** `awslocal` (a Python wrapper around the AWS CLI) segfaulted on every call under

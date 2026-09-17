@@ -37,6 +37,15 @@ class FakeSqs:
 
 
 class FakeSocket:
+    """Stands in for a browser socket.
+
+    Deliberately unhashable, like the real `WebSocket`, which extends a Mapping and so
+    defines equality without a hash. A hashable double let a version of this gateway pass
+    every test while closing real connections the moment they were accepted.
+    """
+
+    __hash__ = None  # type: ignore[assignment]
+
     def __init__(self) -> None:
         self.sent: list[dict[str, Any]] = []
 
@@ -45,6 +54,8 @@ class FakeSocket:
 
 
 class BrokenSocket:
+    __hash__ = None  # type: ignore[assignment]
+
     async def send_text(self, text: str) -> None:
         raise ConnectionResetError("browser went away")
 
@@ -110,7 +121,7 @@ async def test_a_closed_browser_does_not_stop_the_others_being_told() -> None:
     await gateway.poll_once()
 
     assert len(healthy.sent) == 1
-    assert len(gateway.subscribers.sockets) == 1, "the dead socket is dropped"
+    assert len(gateway.subscribers) == 1, "the dead socket is dropped"
 
 
 @pytest.mark.asyncio
@@ -126,3 +137,23 @@ async def test_every_message_is_deleted_after_handling() -> None:
 async def test_an_empty_queue_is_not_an_error() -> None:
     gateway = EventGateway(FakeSqs([]), QUEUE)
     assert await gateway.poll_once() == 0
+
+
+async def test_an_unhashable_socket_can_subscribe() -> None:
+    """The real WebSocket is a Mapping and cannot be a dict key.
+
+    This is the exact fault that made the live gateway reject every connection with a 403
+    while the unit tests were green, because the double was hashable and the real object
+    is not.
+    """
+    gateway = EventGateway(FakeSqs([]), QUEUE)
+    socket = FakeSocket()
+
+    with pytest.raises(TypeError):
+        {socket: "proves the double is unhashable"}  # noqa: B018
+
+    gateway.subscribers.add(socket, "run-1")
+    assert gateway.subscribers.interested_in("run-1") == [socket]
+
+    gateway.subscribers.remove(socket)
+    assert len(gateway.subscribers) == 0
