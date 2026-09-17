@@ -109,6 +109,41 @@ unloaded as soon as the call returned. Bench concurrency stays at 1 (ADR-0004). 
 milestone needs both models hot, this is the first setting to revisit — on a larger host,
 drop it.
 
+## ADR-0008: Report the most fundamental denial reason, not the first one
+
+**Context:** Several `forbid` policies can deny the same request, and the engine makes no
+promise about the order it lists them in. The bank-change attack trips three at once
+(vendor unverified, above the auto-approve limit, account not from the vendor master).
+Reporting whichever came back first made the hero run say `VENDOR_NOT_VERIFIED`, which is
+true but badly misleading: it suggests a human could approve it, when the account rule is
+the one that makes it impossible.
+
+**Decision:** Keep an explicit `REASON_PRECEDENCE` order in the enforcement point and
+report the highest-precedence policy that fired. Guarantees no approver can lift come
+first, then the ones that merely need a signature.
+
+**Consequences:** The reason surfaced is deterministic regardless of engine ordering, and
+the console copy reflects what actually blocks the action. `determining_policies` still
+carries the full list, so nothing is hidden. Adding a policy means placing it in this
+order too, which is noted in `docs/extending.md`.
+
+## ADR-0009: The scripted planner follows the invoice, rather than being safe by design
+
+**Context:** The first version of the scripted planner always paid to the account held in
+the vendor master. The hero run then "passed" while never once handing the enforcement
+point an untrusted account, so the central guarantee was not being exercised at all. The
+acceptance test was green and worthless.
+
+**Decision:** Model the planner as credulous. When a document supplies a bank account that
+differs from the one on file, the planner attempts to use the supplied value, which is
+exactly the behaviour the attack is engineering. Enforcement decides the outcome, not the
+planner's caution.
+
+**Consequences:** The hero run now genuinely exercises the guarantee: the bank-change
+attack is hard-denied by `pay-account-must-be-master` because the account carries
+`EXTERNAL_EMAIL` and `MODEL_READER`. A planner that is careful by construction would prove
+nothing about the defence, so this shape is kept deliberately.
+
 ## ADR-0006: Use `aws --endpoint-url` rather than `awslocal`
 
 **Context:** `awslocal` (a Python wrapper around the AWS CLI) segfaulted on every call under

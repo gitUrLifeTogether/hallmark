@@ -57,8 +57,37 @@ full §17 directory skeleton.
   decode error. **Always pass `fileb://<file>`.**
 - Prefer the compiled `aws --endpoint-url` over `awslocal` (ADR-0006).
 
+## M1 - Core security kernel: COMPLETE
+
+Domain (pure, no I/O): `labels.py`, `values.py`, `identifiers.py`, `declassify.py`,
+`lineage.py`, `mandate.py`, `tools.py`, `errors.py`.
+Ports + in-memory adapters for every one. Cedar policies (9, with `@id` names) evaluated
+through `cedarpy`. Enforcement point, fact checkers, request builder, quarantined reader.
+Hero fixtures: fictional company, 6 vendors, 20-email inbox with both attacks.
+
+**Acceptance gate passes**, deterministically and with no model in the loop:
+
+| Outcome | Count | Which |
+|---|---|---|
+| EXECUTED | 16 | the routine invoices |
+| PENDING_APPROVAL | 1 | email-17, above the auto-approve limit |
+| DENIED | 3 | email-18 duplicate, email-19 bank-change attack, email-20 exfiltration |
+
+email-19 is hard-denied by `pay-account-must-be-master` (`ACCOUNT_NOT_FROM_VENDOR_MASTER`)
+and opens a bank-change review. email-20 is denied by `email-confidential-internal-only`.
+
+**136 tests pass**; ruff and `mypy --strict` clean; 94% coverage on domain + application.
+Includes 35 Cedar scenarios, Hypothesis property tests for the label algebra, reader
+verification tests, fail-closed tests and a determinism test.
+
+## Not started
+
+Console placeholder at `localhost:5173`; `pre-commit install`; `make` is not installed on
+this machine, so Makefile targets are unverified.
+
 ## Next steps
 
-1. M1 — core security kernel (labels, declassify, lineage, PEP, ≥30 Cedar scenario tests).
-2. Console placeholder + `pre-commit install` + full §17 skeleton (M0 leftovers).
+1. M2 - the agent: Strands planner on Ollama in per-email episodes, reader with
+   JSON-schema output, handle-based tool wrappers, and the canary isolation test.
+2. Install `make`, run `pre-commit install`, add the console placeholder.
 3. Validate `samlocal` + CloudFormation early in M3.

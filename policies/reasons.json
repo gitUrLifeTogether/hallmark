@@ -1,0 +1,38 @@
+{
+  "pay-permit-within-mandate": {
+    "label": "Within mandate",
+    "explain": "The payment is one the user authorised, to an active vendor, for an amount within the cap they set."
+  },
+  "pay-account-must-be-master": {
+    "label": "Account not on file",
+    "explain": "Payments can only go to the bank account held in the vendor master. This account came from external content, so it cannot be used — human approval does not change that."
+  },
+  "pay-vendor-match-required": {
+    "label": "Vendor not verified",
+    "explain": "The invoice GSTIN, the sender's domain and the DKIM result did not all agree on the same vendor. A human can approve it after checking."
+  },
+  "pay-no-duplicates": {
+    "label": "Duplicate invoice",
+    "explain": "This vendor and invoice number were already settled or are already pending, so paying again would be a double payment."
+  },
+  "pay-above-auto-limit-needs-human": {
+    "label": "Above auto-approve limit",
+    "explain": "The amount is above the limit for automatic payment, so it needs a person to approve it."
+  },
+  "email-permit-within-mandate": {
+    "label": "Sending allowed",
+    "explain": "The user's mandate includes sending email."
+  },
+  "email-recipient-must-be-trusted": {
+    "label": "Recipient not recognised",
+    "explain": "The recipient is neither an internal address nor a contact in the vendor master, and the address itself came from external content."
+  },
+  "email-confidential-internal-only": {
+    "label": "Confidential stays internal",
+    "explain": "This message carries confidential company data, so it can only go to an internal address."
+  },
+  "read-tools-allowed": {
+    "label": "Read-only tool",
+    "explain": "Reading, looking up and flagging do not move money or send anything, so they are permitted."
+  }
+}

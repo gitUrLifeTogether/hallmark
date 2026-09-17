@@ -68,9 +68,7 @@ def test_client_factory_is_never_called_for_a_real_aws_endpoint() -> None:
         calls.append((service_name, kwargs))
         return "client"
 
-    settings = Settings.from_env(
-        {"AWS_ENDPOINT_URL": "https://dynamodb.ap-south-1.amazonaws.com"}
-    )
+    settings = Settings.from_env({"AWS_ENDPOINT_URL": "https://dynamodb.ap-south-1.amazonaws.com"})
     with pytest.raises(ConfigurationError):
         local_boto3_client("dynamodb", settings, client_factory=spy)
 

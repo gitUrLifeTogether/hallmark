@@ -10,8 +10,9 @@ any endpoint that is not a local emulator.
 from __future__ import annotations
 
 import os
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Final, Mapping
+from typing import TYPE_CHECKING, Any, Final
 from urllib.parse import urlsplit
 
 from hallmark.domain.errors import ConfigurationError
