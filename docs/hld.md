@@ -1,60 +1,127 @@
 # High-Level Design
 
-First draft — kept current as milestones land (§0.2.1.14).
+## What this is
 
-## Context
+Hallmark is a policy enforcement layer between an AI agent and the actions that cost money
+or leak data. Its one claim is that a consequential action whose security-relevant
+arguments came from untrusted content cannot execute unless a policy explicitly permits
+that combination — and for the dangerous combinations, none does.
 
-Hallmark is a provenance-aware policy enforcement layer sitting between an AI agent
-(Strands planner on Bedrock) and the consequential tools it can call (paying a vendor,
-sending an email). See `CLAUDE.md` §1–§4 for the full problem statement and mechanisms.
+Nothing in that sentence depends on the model behaving well, which is the point. The model
+is free to be fooled.
 
-## Component diagram (target, §12.1 of CLAUDE.md)
+## The two runtimes
 
-See `CLAUDE.md` §12.1 for the full AWS architecture diagram (Console → API Gateway →
-Step Functions → planner runtime Lambda → PEP → Verified Permissions, backed by
-DynamoDB/S3/EventBridge/Cognito). Reproduced and kept in sync in `docs/architecture.md`
-once the stack exists.
+The system is built once and runs in two places. The core is pure Python behind ports, so
+the same security kernel serves both.
 
-## Key flow: hero run (sequence, Mermaid)
+| | Runs today | Target production |
+|---|---|---|
+| Agent framework | Strands Agents | Strands Agents |
+| Models | local, via Ollama | a hosted model service |
+| Policy decisions | Cedar in-process (`cedarpy`) | a hosted policy service, same `.cedar` files |
+| Compute | Lambda on LocalStack | Lambda |
+| State | DynamoDB and S3 on LocalStack | DynamoDB and S3 |
+| Workflows | Step Functions on LocalStack | Step Functions |
+
+The right-hand column is **not provisioned**. Moving to it means writing adapters behind
+the existing ports, not changing the kernel. `Authorizer` is the clearest example: it is
+one small interface with one implementation today, and a second implementation is all a
+hosted policy service would require.
+
+## Components
+
+```
+                    ┌──────────────────────────────────────────┐
+   user request ───►│ planner   (model + tools, no text)       │
+                    │  one short episode per email             │
+                    └───────────┬──────────────────────────────┘
+                                │ handles, enums, checked displays
+                    ┌───────────▼──────────────────────────────┐
+                    │ tool surface  (agent_tools.py)           │
+                    │  resolves handles, never returns text    │
+                    └───────────┬──────────────────────────────┘
+                     ┌──────────┴──────────┐
+        ┌────────────▼───────┐   ┌─────────▼──────────────────┐
+        │ reader             │   │ enforcement point (pep.py) │
+        │  model, no tools   │   │  facts → Cedar → act       │
+        │  JSON schema out   │   └─────────┬──────────────────┘
+        │  fields verified   │             │
+        └────────────────────┘   ┌─────────▼──────────────────┐
+                                 │ Cedar policies (policies/) │
+                                 └────────────────────────────┘
+        stores: values · lineage · decisions · vendors · ledger · inbox
+```
+
+## The flow for one email
 
 ```mermaid
 sequenceDiagram
-    participant U as User (Ananya)
-    participant SF as Step Functions (AgentRun)
-    participant P as Planner (Strands/Bedrock)
-    participant PEP as PEP
-    participant AVP as Verified Permissions (Cedar)
-    participant R as Reader (Bedrock, no tools)
+    participant P as Planner (model + tools)
+    participant T as Tool surface
+    participant R as Reader (no tools)
+    participant E as Enforcement point
+    participant C as Cedar
 
-    U->>SF: POST /runs {requestText, inboxFixtureId}
-    SF->>P: DraftMandate
-    P-->>U: Mandate card (console)
-    U->>SF: Confirm mandate
-    SF->>P: RunPlanner
-    loop per email
-        P->>PEP: extract_invoice(handle)
-        PEP->>R: resolve untrusted content, invoke reader
-        R-->>PEP: strict schema fields (labeled, unverified)
-        PEP-->>P: handles + declassified typed fields only
-        P->>PEP: pay_vendor(vendor_h, account_h, amount_h, invoice_h)
-        PEP->>AVP: IsAuthorized(request)
-        AVP-->>PEP: ALLOW / DENY
-        PEP-->>P: EXECUTED / PENDING_APPROVAL / DENIED (enum only)
+    P->>T: read_email(handle)
+    T-->>P: body_handle, sender_domain_handle, dkim enum
+    Note over T: the text stays in the store
+    P->>T: extract_invoice(body_handle)
+    T->>R: the untrusted content
+    R-->>T: fields, schema-constrained
+    Note over T: verify each field appears in the source,<br/>label MODEL_READER, declassify by type
+    T-->>P: handles, plus display for amounts and dates
+    P->>T: lookup_vendor(gstin_handle, domain_handle)
+    T-->>P: vendor_handle, account_on_file_handle, domain_matches
+    P->>T: pay_vendor(vendor, account, amount, invoice)
+    T->>E: resolve handles to labeled values
+    E->>E: compute facts from company records
+    E->>C: is this allowed, given where each argument came from?
+    C-->>E: allow / deny + deciding policies
+    alt denied
+        E->>C: would a human approver change this?
+        C-->>E: yes → escalate, no → refuse outright
     end
-    SF->>U: RunCompleted summary
+    E-->>P: status enum, reason code, policy ids
 ```
 
-## Scaling and failure analysis (initial)
+The planner never appears on the left of an arrow carrying text. That is the invariant the
+canary test enforces.
 
-- Stateless Lambdas; all state in DynamoDB/S3/Step Functions (§0.2.1.2).
-- Long-running planner work happens inside a Step Functions-orchestrated Lambda, not an
-  API request (§0.2.1.3). Clients follow progress via WebSocket events.
-- Every external call (Bedrock, Verified Permissions, DynamoDB) needs a timeout and
-  bounded retries; enforcement fails closed on any exception (§9.5, §0.2.1.7).
-- Multi-tenant partition keys from day one (`TENANT#<tenantId>#...`), single tenant
-  (`kestrel`) used in the demo (§0.2.1.5).
+## Why episodes
+
+One email per episode, with fresh context and a budget of eight tool calls enforced in
+code. Three reasons, in order of importance:
+
+1. A confused planner stalls instead of looping forever. The budget is not advice in a
+   prompt; the tool surface stops answering.
+2. A small model stays on task with a short context.
+3. It is the shape that parallelises later. Nothing is carried between episodes, so
+   invoices can be processed concurrently without touching the planner.
+
+## Failure behaviour
+
+Enforcement fails closed. Any exception in handle resolution, fact computation, request
+building or authorization becomes a denial with `ENFORCEMENT_ERROR`, never a fall-through
+to execution. There is a test that breaks the policy engine on purpose and requires the
+payment to be refused.
+
+The same applies to gaps rather than errors: a value with no recorded provenance reads as
+untrusted, because the safe reading of a bug is "we do not know where this came from".
+
+## Scaling, when it matters
+
+The kernel is stateless and the episode carries no cross-email state, so the work is
+already shaped for concurrency. What would need attention first:
+
+- **Model throughput**, which is the binding constraint today. A cold model load costs
+  roughly fifteen times a warm call on this hardware (ADR-0010).
+- **Per-tenant partitioning.** Keys are tenant-prefixed by design; the demo uses one.
+- **Decision latency**, currently dominated by model time, not by policy evaluation.
 
 ## Open items
 
-- Region and model IDs pending AWS account + Bedrock access confirmation (ADR-0003).
-- Full context/deployment diagrams to be added once the SAM stack is deployed (M3).
+- Real-time event stream and console (M4).
+- `samlocal` with CloudFormation is still unverified (ADR-0005).
+- Packaging the agent SDK into a Lambda is unverified; the spike proved only the network
+  path to the model host.
