@@ -25,6 +25,7 @@ import {
   POLICIES,
   RUN_SUMMARY,
 } from "./lib/demoData";
+import { useLiveRun } from "./lib/liveStore";
 import { formatPaise } from "./lib/types";
 
 type View =
@@ -81,8 +82,41 @@ function viewFromHash(): View {
   return (VIEW_IDS.has(candidate) ? candidate : "run") as View;
 }
 
+/** Says which run a screen is describing.
+ *
+ * Silence here would be worse than showing the wrong run: a viewer could not tell a
+ * submitted email from the recorded example, and the console's whole subject is knowing
+ * where something came from.
+ */
+function RunSource({ live, planner }: { live: boolean; planner?: string }) {
+  return (
+    <p style={{ margin: 0, fontSize: 13, color: "var(--ink-2)" }}>
+      {live
+        ? `Showing the run you just submitted${planner ? ` — ${planner}` : ""}.`
+        : "Showing the recorded acceptance run. Submit an email on Live run to replace it."}
+    </p>
+  );
+}
+
 export default function App() {
   const [view, setViewState] = useState<View>(viewFromHash);
+
+  // A submitted run replaces the recorded one everywhere, so every screen describes the
+  // same thing. Falling back keeps the console useful before anything has been submitted.
+  const live = useLiveRun();
+  const decisions = live?.decisions ?? DECISIONS;
+  const lineageNodes = live?.lineage.nodes ?? LINEAGE_NODES;
+  const lineageEdges = live?.lineage.edges ?? LINEAGE_EDGES;
+  const email = live?.email ?? ATTACK_EMAIL;
+  const summary = live
+    ? {
+        executed: live.counts.executed,
+        pendingApproval: live.counts.pendingApproval,
+        denied: live.counts.denied,
+        paidPaise: RUN_SUMMARY.paidPaise,
+        blockedPaise: RUN_SUMMARY.blockedPaise,
+      }
+    : RUN_SUMMARY;
 
   const setView = (next: View) => {
     setViewState(next);
@@ -156,6 +190,7 @@ export default function App() {
 
       {view === "run" && (
         <section style={{ display: "grid", gap: 20 }}>
+          <RunSource live={live !== null} planner={live?.plannerLabel} />
           <div
             style={{
               display: "flex",
@@ -169,31 +204,28 @@ export default function App() {
           >
             <Stat
               label="paid automatically"
-              value={String(RUN_SUMMARY.executed)}
+              value={String(summary.executed)}
               tone="var(--allow)"
             />
             <Stat
               label="waiting on a person"
-              value={String(RUN_SUMMARY.pendingApproval)}
+              value={String(summary.pendingApproval)}
               tone="var(--pending)"
             />
             <Stat
               label="refused"
-              value={String(RUN_SUMMARY.denied)}
+              value={String(summary.denied)}
               tone="var(--deny)"
             />
-            <Stat
-              label="total paid"
-              value={formatPaise(RUN_SUMMARY.paidPaise)}
-            />
+            <Stat label="total paid" value={formatPaise(summary.paidPaise)} />
             <Stat
               label="blocked value"
-              value={formatPaise(RUN_SUMMARY.blockedPaise)}
+              value={formatPaise(summary.blockedPaise)}
               tone="var(--deny)"
             />
           </div>
 
-          {DECISIONS.map((decision) => (
+          {decisions.map((decision) => (
             <DecisionCard
               key={decision.decisionId}
               decision={decision}
@@ -222,8 +254,11 @@ export default function App() {
           }}
         >
           <h2 style={{ margin: 0, fontSize: 21, fontWeight: 600 }}>
-            Why the payment to Suryodaya was refused
+            {live
+              ? "Where this run's values came from"
+              : "Why the payment to Suryodaya was refused"}
           </h2>
+          <RunSource live={live !== null} planner={live?.plannerLabel} />
           <p
             style={{
               margin: 0,
@@ -239,8 +274,8 @@ export default function App() {
             content chose which record to load.
           </p>
           <LineageGraph
-            nodes={LINEAGE_NODES}
-            edges={LINEAGE_EDGES}
+            nodes={lineageNodes}
+            edges={lineageEdges}
             focus={focus}
           />
         </section>
@@ -255,7 +290,10 @@ export default function App() {
             padding: 20,
           }}
         >
-          <SafeEmailViewer email={ATTACK_EMAIL} />
+          <div style={{ marginBottom: 12 }}>
+            <RunSource live={live !== null} planner={live?.plannerLabel} />
+          </div>
+          <SafeEmailViewer email={email} />
         </section>
       )}
 

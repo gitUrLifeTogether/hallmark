@@ -17,6 +17,8 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ApiError, getRun, isSignedIn, login, submitRun } from "../lib/api";
+import type { RunDetail } from "../lib/liveStore";
+import { setLiveRun } from "../lib/liveStore";
 import type { LiveEvent } from "../lib/useLiveEvents";
 import { useLiveEvents } from "../lib/useLiveEvents";
 
@@ -260,6 +262,12 @@ export function LiveRun() {
     remember({ runId, phase, feed, verdict });
   }, [runId, phase, feed, verdict]);
 
+  /** Hand the finished run to every other view, so they stop describing a different one. */
+  const publish = (summary: Verdict | null) => {
+    const detail = (summary as { detail?: RunDetail } | null)?.detail;
+    if (detail) setLiveRun({ ...detail, plannerLabel: summary?.plannerLabel });
+  };
+
   /** Clear the previous run so a new submission starts on an empty screen. */
   const reset = () => {
     setPhase("idle");
@@ -268,6 +276,7 @@ export function LiveRun() {
     setEarlier([]);
     setMessage("");
     clear();
+    setLiveRun(null);
     try {
       sessionStorage.removeItem(SAVED);
     } catch {
@@ -286,7 +295,9 @@ export function LiveRun() {
     if (!runId || phase !== "running") return;
 
     if (completion) {
-      setVerdict(completion.payload as Record<string, never>);
+      const payload = completion.payload as Verdict & { detail?: never };
+      setVerdict(payload);
+      publish(payload);
       setPhase("done");
       return;
     }
@@ -296,6 +307,7 @@ export function LiveRun() {
         .then((status) => {
           if (status.status !== "QUEUED" && status.status !== "RUNNING") {
             setVerdict(status.summary);
+            publish(status.summary);
             setPhase("done");
           }
         })

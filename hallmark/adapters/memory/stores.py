@@ -31,6 +31,10 @@ class InMemoryValueStore:
     def get(self, run_id: str, handle: str) -> Labeled[Any] | None:
         return self._values.get((run_id, handle))
 
+    def for_run(self, run_id: str) -> list[Labeled[Any]]:
+        """Every value a run created, for building its lineage graph."""
+        return [value for (rid, _), value in self._values.items() if rid == run_id]
+
 
 class InMemoryLineageStore:
     def __init__(self) -> None:

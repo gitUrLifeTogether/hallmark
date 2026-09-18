@@ -10,6 +10,7 @@
  * somewhere persistent.
  */
 
+import type { RunDetail } from "./liveStore";
 import type { PendingApproval } from "./types";
 
 const BASE = "/api";
@@ -134,6 +135,7 @@ export interface RunStatus {
     error?: string;
     plannerLabel?: string;
     backend?: string;
+    detail?: RunDetail;
   } | null;
 }
 

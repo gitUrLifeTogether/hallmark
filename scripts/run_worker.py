@@ -49,6 +49,7 @@ from hallmark.application.planner import (  # noqa: E402
     ScriptedEpisodePlanner,
     build_planner_model,
 )
+from hallmark.application.run_detail import build_run_detail  # noqa: E402
 from hallmark.application.scripted_run import RegexInvoiceReader  # noqa: E402
 from hallmark.application.submissions import Submission  # noqa: E402
 from hallmark.config import Settings, local_boto3_client  # noqa: E402
@@ -296,6 +297,21 @@ def process(run_id: str, store: Any, events: Any) -> None:
     # Which planner produced this travels with the result, so a browser that reconnects
     # learns it without having seen the event.
     summary = {**summary, "plannerLabel": planner_label(), "backend": PLANNER_BACKEND}
+
+    # Everything the console needs to show this run on every screen, not only on the one
+    # that submitted it. Built from what the run recorded, never re-derived.
+    try:
+        summary["detail"] = build_run_detail(
+            run_id,
+            email_from(submission),
+            tools._values,
+            tools._lineage,
+            tools._pep._decisions,
+            tools._pep._ledger,
+        )
+    except Exception as exc:  # noqa: BLE001
+        # A view is not a verdict. Failing to build one must never change the outcome.
+        print(f"run detail failed: {type(exc).__name__}", file=sys.stderr)
 
     store.set_status(run_id, status, summary)
     events.publish(DomainEvent(EventType.RUN_COMPLETED, run_id, _now(), summary))
