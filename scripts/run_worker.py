@@ -186,12 +186,27 @@ expires. The planner stops cooperatively at its next tool call; this bounds the 
 there is no next tool call because the current one never returns."""
 
 
-def _run_with_watchdog(planner: ModelPlanner, handle: str) -> bool:
-    """Run an episode, giving up on it if it outlives its deadline.
+FOLLOW_UP_SECONDS = float(os.environ.get("FOLLOW_UP_SECONDS", 45))
+"""How long to keep waiting after a payment has been decided.
 
-    Returns False if it timed out. The thread is abandoned rather than killed, which
-    Python does not offer: it is a daemon, so it cannot keep the process alive, and the
-    episode's own deadline stops it doing further work.
+Enough for the flag and the review a denial calls for. Not a limit on the planner, which
+cannot be stopped from here -- a limit on how long this worker waits for one. Refusing the
+planner's calls does not end its loop, and every refused call still costs an inference, so
+an episode whose verdict was settled in two calls went on for forty minutes making a
+sixth, seventh and eighth attempt to flag the same email.
+"""
+
+
+def _run_with_watchdog(planner: ModelPlanner, tools: AgentTools, handle: str) -> bool:
+    """Run an episode and stop waiting once its verdict is settled.
+
+    Returns False only if the episode ended with nothing decided. The thread is abandoned
+    rather than killed, which Python does not offer: it is a daemon, its own deadline stops
+    it taking further tool calls, and the per-call model timeout stops it holding the model
+    server against the next run.
+
+    Waiting for the planner to finish talking was the mistake. What the run needs is the
+    decision, and that is recorded the moment the enforcement point makes it.
     """
     done = threading.Event()
 
@@ -201,9 +216,20 @@ def _run_with_watchdog(planner: ModelPlanner, handle: str) -> bool:
         finally:
             done.set()
 
-    worker = threading.Thread(target=target, daemon=True, name="episode")
-    worker.start()
-    return done.wait(EPISODE_DEADLINE_SECONDS + WATCHDOG_GRACE_SECONDS)
+    threading.Thread(target=target, daemon=True, name="episode").start()
+
+    deadline = time.monotonic() + EPISODE_DEADLINE_SECONDS + WATCHDOG_GRACE_SECONDS
+    settled_at: float | None = None
+
+    while time.monotonic() < deadline:
+        if done.wait(2):
+            return True
+        if tools.payment_decided:
+            if settled_at is None:
+                settled_at = time.monotonic()
+            elif time.monotonic() - settled_at >= FOLLOW_UP_SECONDS:
+                return True
+    return False
 
 
 def process(run_id: str, store: Any, events: Any) -> None:
@@ -217,7 +243,7 @@ def process(run_id: str, store: Any, events: Any) -> None:
         handle = listing["emails"][0]["email_handle"]
         planner = ModelPlanner(tools, build_planner_model(OLLAMA_HOST, MODEL))
 
-        abandoned = not _run_with_watchdog(planner, handle)
+        abandoned = not _run_with_watchdog(planner, tools, handle)
         summary = summarise(decisions, ledger, run_id, tools.attempts)
 
         if not abandoned:
