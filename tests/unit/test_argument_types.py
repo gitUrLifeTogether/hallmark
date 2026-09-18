@@ -227,3 +227,58 @@ def test_the_model_is_offered_only_the_composed_tool() -> None:
 
     assert "prepare_payment" in names
     assert {"read_email", "extract_invoice", "lookup_vendor"} & names == set()
+
+
+def prepared_for(email_id: str):
+    tools = build_tools_for_test()
+    tools._reader = RegexInvoiceReader()
+    handle = next(
+        entry["email_handle"]
+        for entry in tools.list_inbox()["emails"]
+        if tools._email_by_handle[entry["email_handle"]] == email_id
+    )
+    tools.prepare_payment(handle)
+    return tools
+
+
+def test_the_planner_names_an_account_rather_than_spelling_four_handles() -> None:
+    """The last thing a 1.7b model had to get right, and could not.
+
+    It typed a value where a handle belonged, and the call was refused before any policy
+    could consider it — which on screen reads as the system blocking a legitimate invoice.
+    Handles are unchanged underneath; the enforcement point still receives and judges them.
+    """
+    result = prepared_for(BODY_EMAIL).pay_prepared("on_file")
+
+    assert result["status"] == "EXECUTED"
+    assert result["determining_policies"] == ["pay-permit-within-mandate"]
+
+
+def test_naming_the_invoice_account_still_reaches_the_account_rule() -> None:
+    """The choice that matters stays with the planner, and is still judged."""
+    result = prepared_for("email-19").pay_prepared("from_invoice")
+
+    assert result["status"] == "DENIED"
+    assert result["reason_code"] == "ACCOUNT_NOT_FROM_VENDOR_MASTER"
+    assert "pay-account-must-be-master" in result["determining_policies"]
+
+
+def test_paying_before_preparing_says_so() -> None:
+    tools = build_tools_for_test()
+
+    result = tools.pay_prepared("on_file")
+
+    assert result["reason_code"] == "NOTHING_PREPARED"
+    assert "prepare_payment" in result["suggested_next"]
+
+
+def test_an_unrecognised_account_word_falls_back_to_the_record() -> None:
+    """A model that invents a third word must not accidentally pay the invoice's account.
+
+    Defaulting to the vendor master is the safe direction: the worst case is a payment the
+    policies then judge on trusted provenance, never an untrusted account slipping through
+    on a typo.
+    """
+    result = prepared_for(BODY_EMAIL).pay_prepared("whatever")
+
+    assert result["status"] == "EXECUTED"

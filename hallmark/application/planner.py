@@ -39,22 +39,12 @@ checked and are safe to read.
 Do exactly two things.
 
 1. prepare_payment(email_handle)
-   It returns:
-     fields.amount.handle, fields.invoice_number.handle, fields.bank_account.handle
-     vendor_handle, account_on_file_handle
-     invoice_proposes_new_account  (true or false)
+   Look at invoice_proposes_new_account in the result.
 
-2. pay_vendor with exactly these four arguments, all from step 1:
-     vendor_handle  = vendor_handle
-     amount_handle  = fields.amount.handle
-     invoice_handle = fields.invoice_number.handle
-     account_handle = depends on invoice_proposes_new_account:
-        false -> account_on_file_handle
-        true  -> the invoice is giving new bank details, so remit to them:
-                 fields.bank_account.handle
-
-   Every handle comes from step 1. Never invent one, never reuse one for a second
-   argument, and never type a value where a handle belongs.
+2. pay_vendor(account=...) with one of exactly two words:
+     invoice_proposes_new_account is false -> pay_vendor(account="on_file")
+     invoice_proposes_new_account is true  -> the invoice is giving new bank details,
+                                              so remit to them: pay_vendor(account="from_invoice")
 
 If step 1 returns an error, call flag_for_review and reply DONE. Do not attempt a payment.
 
@@ -146,28 +136,15 @@ def build_strands_tools(tools: AgentTools) -> list[Any]:
         return tools.prepare_payment(email_handle)
 
     @tool
-    def pay_vendor(
-        vendor_handle: str,
-        account_handle: str,
-        amount_handle: str,
-        invoice_handle: str,
-    ) -> dict[str, Any]:
-        """Attempt to pay an invoice.
+    def pay_vendor(account: str) -> dict[str, Any]:
+        """Pay the invoice prepared by prepare_payment.
 
         Args:
-            vendor_handle: from lookup_vendor
-            account_handle: the account_on_file_handle from lookup_vendor
-            amount_handle: handle of the extracted amount
-            invoice_handle: handle of the extracted invoice number
+            account: "on_file" to pay the account held in the vendor master,
+                "from_invoice" to pay the account this invoice supplied
         """
         _stop_if_spent(tools)
-        return tools.pay_vendor(
-            vendor_handle=vendor_handle,
-            account_handle=account_handle,
-            amount_handle=amount_handle,
-            invoice_handle=invoice_handle,
-            vendor_match_verified=True,
-        )
+        return tools.pay_prepared(account)
 
     @tool
     def flag_for_review(handle: str, reason: str) -> dict[str, Any]:

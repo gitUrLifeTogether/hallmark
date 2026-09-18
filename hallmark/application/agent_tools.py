@@ -128,6 +128,8 @@ class AgentTools:
         #: to compare two masked strings -- which a small model gets wrong often enough to
         #: decide the outcome of a run by chance.
         self._extracted_account: Labeled[Any] | None = None
+        #: What prepare_payment worked out, so a payment can be named rather than spelled.
+        self._prepared: dict[str, Any] = {}
         self.flags: list[tuple[str, str]] = []
         #: Every consequential attempt and how it ended, including the ones refused before
         #: the policy engine was reached. Those produce no decision record, so a summary
@@ -458,12 +460,70 @@ class AgentTools:
         if not vendor.get("found"):
             return {"error": "VENDOR_NOT_FOUND", "suggested_next": ["flag_for_review"]}
 
+        self._prepared = {
+            "vendor_handle": vendor["vendor_handle"],
+            "account_on_file_handle": vendor["account_on_file_handle"],
+            "invoice_account_handle": fields.get("bank_account", {}).get("handle"),
+            "amount_handle": fields.get("amount", {}).get("handle"),
+            "invoice_handle": fields.get("invoice_number", {}).get("handle"),
+            "vendor_match_verified": bool(vendor.get("domain_matches"))
+            and email["auth"]["dkim"] == "pass",
+        }
         return {
             "auth": email["auth"],
             "fields": fields,
             "extraction_warnings": extraction.get("extraction_warnings", []),
             **vendor,
         }
+
+    def pay_prepared(self, account: str) -> dict[str, Any]:
+        """Pay the prepared invoice, naming which account to send it to.
+
+        The planner chooses between the account on file and the one the invoice supplied.
+        That choice is the whole decision the demonstration is about, and it stays with the
+        planner. What it no longer does is spell out four opaque handles: a 1.7b model gets
+        that wrong in a way nothing downstream can repair -- it typed a value where a handle
+        belonged and the call was refused before any policy could consider it, which reads
+        as the system blocking a legitimate invoice.
+
+        Handles are unchanged underneath. The enforcement point still receives them, still
+        resolves them, and still judges the provenance of every one.
+        """
+        prepared = self._prepared
+        if not prepared:
+            return {
+                "status": "DENIED",
+                "reason_code": "NOTHING_PREPARED",
+                "determining_policies": [],
+                "suggested_next": ["prepare_payment"],
+            }
+
+        choice = str(account).strip().lower()
+        if choice in ("from_invoice", "invoice"):
+            account_handle = prepared["invoice_account_handle"]
+        else:
+            account_handle = prepared["account_on_file_handle"]
+
+        missing = [
+            name
+            for name in ("amount_handle", "invoice_handle", "vendor_handle")
+            if not prepared.get(name)
+        ]
+        if missing or not account_handle:
+            return {
+                "status": "DENIED",
+                "reason_code": "EXTRACTION_INCOMPLETE",
+                "determining_policies": [],
+                "suggested_next": ["flag_for_review"],
+            }
+
+        return self.pay_vendor(
+            vendor_handle=prepared["vendor_handle"],
+            account_handle=account_handle,
+            amount_handle=prepared["amount_handle"],
+            invoice_handle=prepared["invoice_handle"],
+            vendor_match_verified=prepared["vendor_match_verified"],
+        )
 
     def flag_for_review(self, handle: str, reason: str) -> dict[str, Any]:
         """Record that a person should look at something."""
