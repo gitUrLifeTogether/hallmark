@@ -46,8 +46,10 @@ from hallmark.application.pep import PolicyEnforcementPoint, RunContext  # noqa:
 from hallmark.application.planner import (  # noqa: E402
     EPISODE_DEADLINE_SECONDS,
     ModelPlanner,
+    ScriptedEpisodePlanner,
     build_planner_model,
 )
+from hallmark.application.scripted_run import RegexInvoiceReader  # noqa: E402
 from hallmark.application.submissions import Submission  # noqa: E402
 from hallmark.config import Settings, local_boto3_client  # noqa: E402
 from hallmark.domain.mandate import Mandate  # noqa: E402
@@ -57,6 +59,18 @@ from hallmark.ports.repositories import EmailAttachment, InboxEmail  # noqa: E40
 POLICY_DIR = Path(__file__).resolve().parents[1] / "policies"
 OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
 MODEL = os.environ.get("PLANNER_MODEL", "qwen3:1.7b")
+PLANNER_BACKEND = os.environ.get("PLANNER_BACKEND", "llm").strip().lower()
+"""Which planner drives a run. `scripted` is deterministic and fast; `llm` is the real
+model. Whichever is in use is announced on every run, because a console that did not say
+would leave the honesty of the demonstration resting on whoever is narrating it."""
+
+
+def planner_label() -> str:
+    """How the console names the planner on screen."""
+    if PLANNER_BACKEND == "scripted":
+        return "Scripted planner (deterministic)"
+    return f"Live AI model ({MODEL} via Ollama)"
+
 
 MANDATE = Mandate(frozenset({"pay_vendor", "send_email"}), 50_000_000, 20_000_000)
 """Matches the hero run: a ₹5,00,000 cap and a ₹2,00,000 auto-approve limit."""
@@ -235,13 +249,25 @@ def _run_with_watchdog(planner: ModelPlanner, tools: AgentTools, handle: str) ->
 def process(run_id: str, store: Any, events: Any) -> None:
     submission, _status = store.get(run_id)
     store.set_status(run_id, "RUNNING")
-    events.publish(DomainEvent(EventType.RUN_STARTED, run_id, _now(), {"model": MODEL}))
+    events.publish(
+        DomainEvent(
+            EventType.RUN_STARTED,
+            run_id,
+            _now(),
+            {"backend": PLANNER_BACKEND, "plannerLabel": planner_label()},
+        )
+    )
 
     tools, ledger, decisions = build_tools(run_id, submission, events)
     try:
         listing = tools.list_inbox()
         handle = listing["emails"][0]["email_handle"]
-        planner = ModelPlanner(tools, build_planner_model(OLLAMA_HOST, MODEL))
+        planner: Any
+        if PLANNER_BACKEND == "scripted":
+            tools._reader = RegexInvoiceReader()
+            planner = ScriptedEpisodePlanner(tools)
+        else:
+            planner = ModelPlanner(tools, build_planner_model(OLLAMA_HOST, MODEL))
 
         abandoned = not _run_with_watchdog(planner, tools, handle)
         summary = summarise(decisions, ledger, run_id, tools.attempts)
@@ -267,6 +293,10 @@ def process(run_id: str, store: Any, events: Any) -> None:
         summary = {"verdict": "EPISODE_FAILED", "error": logged, "policies": []}
         status = "FAILED"
 
+    # Which planner produced this travels with the result, so a browser that reconnects
+    # learns it without having seen the event.
+    summary = {**summary, "plannerLabel": planner_label(), "backend": PLANNER_BACKEND}
+
     store.set_status(run_id, status, summary)
     events.publish(DomainEvent(EventType.RUN_COMPLETED, run_id, _now(), summary))
     print(f"{run_id}: {status} {summary.get('verdict')}")
@@ -290,7 +320,7 @@ def main() -> int:
     store = DynamoSubmissionStore(os.environ["RUNS_TABLE"], os.environ.get("TENANT_ID", "kestrel"))
     events = EventBridgePublisher(os.environ["EVENT_BUS"], settings)
 
-    print(f"run worker ready, model {MODEL}, draining {queue_url}")
+    print(f"run worker ready, planner {planner_label()}, draining {queue_url}")
     while True:
         received = sqs.receive_message(
             QueueUrl=queue_url, MaxNumberOfMessages=1, WaitTimeSeconds=10

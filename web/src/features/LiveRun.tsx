@@ -39,6 +39,8 @@ interface Verdict {
   verdict?: string;
   reasonCode?: string;
   policies?: string[];
+  plannerLabel?: string;
+  backend?: string;
 }
 
 /** Restore an in-flight run. Storage can throw or hold nonsense; neither may break the page. */
@@ -177,6 +179,40 @@ const VERDICT_COPY: Record<
   },
 };
 
+/** Names the planner that produced what is on screen, in the run's own words. */
+function PlannerBadge({ label }: { label: string }) {
+  const scripted = label.toLowerCase().includes("scripted");
+  return (
+    <div
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 8,
+        padding: "5px 11px",
+        marginBottom: 16,
+        borderRadius: 999,
+        border: `1px solid ${scripted ? "var(--rule)" : "var(--trusted)"}`,
+        background: scripted ? "var(--surface-2)" : "var(--trusted-soft)",
+        color: scripted ? "var(--ink-2)" : "var(--trusted)",
+        fontSize: 13,
+      }}
+    >
+      <span
+        aria-hidden
+        style={{
+          width: 7,
+          height: 7,
+          borderRadius: "50%",
+          background: scripted ? "var(--ink-3)" : "var(--trusted)",
+        }}
+      />
+      <span>
+        Planner: <strong style={{ fontWeight: 600 }}>{label}</strong>
+      </span>
+    </div>
+  );
+}
+
 export function LiveRun() {
   const saved = useMemo(restore, []);
 
@@ -205,10 +241,39 @@ export function LiveRun() {
     });
   }, [events, earlier]);
 
+  // Which planner produced what is on screen. It arrives on RunStarted and again with the
+  // result, and is shown rather than narrated: a console silent about it would leave the
+  // honesty of the demonstration resting on whoever happens to be describing it.
+  const planner = useMemo(() => {
+    const announced = feed.find(
+      (event) => typeof event.payload?.plannerLabel === "string",
+    );
+    return (
+      (announced?.payload.plannerLabel as string | undefined) ??
+      verdict?.plannerLabel ??
+      null
+    );
+  }, [feed, verdict]);
+
   // Persist whenever anything worth restoring changes.
   useEffect(() => {
     remember({ runId, phase, feed, verdict });
   }, [runId, phase, feed, verdict]);
+
+  /** Clear the previous run so a new submission starts on an empty screen. */
+  const reset = () => {
+    setPhase("idle");
+    setRunId(undefined);
+    setVerdict(null);
+    setEarlier([]);
+    setMessage("");
+    clear();
+    try {
+      sessionStorage.removeItem(SAVED);
+    } catch {
+      // Nothing here is worth failing a reset over.
+    }
+  };
 
   const completion = useMemo(
     () => feed.find((event) => event.type === "RunCompleted"),
@@ -295,10 +360,12 @@ export function LiveRun() {
         <h2 style={{ marginTop: 0 }}>Send an email to the agent</h2>
         <p style={{ color: "var(--ink-2)", maxWidth: "62ch" }}>
           Write anything you like, including an attack. It is processed by the
-          same pipeline as every other email: a real local model plans, the
-          enforcement point decides, and the verdict below is the one it
-          recorded.
+          same pipeline as every other email: a planner decides what to do, the
+          enforcement point decides what may happen, and the verdict below is
+          the one it recorded.
         </p>
+
+        {planner && <PlannerBadge label={planner} />}
 
         <div
           style={{
@@ -320,7 +387,10 @@ export function LiveRun() {
             </button>
           ))}
           <button type="button" onClick={() => setForm(EMPTY)} disabled={busy}>
-            Clear
+            Clear form
+          </button>
+          <button type="button" onClick={reset} disabled={busy}>
+            Reset result
           </button>
         </div>
 

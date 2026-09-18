@@ -132,6 +132,8 @@ export interface RunStatus {
     policies?: string[];
     paid?: number;
     error?: string;
+    plannerLabel?: string;
+    backend?: string;
   } | null;
 }
 

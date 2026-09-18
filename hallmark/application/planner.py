@@ -206,8 +206,68 @@ def build_planner_model(host: str, model_id: str, keep_alive: str = "10m") -> An
     )
 
 
+class ScriptedEpisodePlanner:
+    """The same two steps a planner is asked for, decided in code rather than by a model.
+
+    It drives the identical tool surface, enforcement point and policies; only the thing
+    choosing is different. That is what makes it an honest fallback rather than a shortcut:
+    the guarantee under test never depended on the planner, so replacing the planner cannot
+    quietly strengthen it.
+
+    It follows the document, like the model-driven planner and like a credulous accounts
+    payable agent: when an invoice proposes an account that is not on file, it remits to the
+    one the invoice gave, and the enforcement point decides what happens next. A scripted
+    planner that always paid the account on file would pass every run while testing nothing,
+    which is exactly how the first acceptance test came to be worthless.
+    """
+
+    backend_name = "scripted"
+
+    def __init__(self, tools: AgentTools) -> None:
+        self._tools = tools
+
+    def run_episode(
+        self,
+        email_handle: str,
+        budget: int = MAX_TOOL_CALLS_PER_EMAIL,
+        deadline_seconds: float | None = EPISODE_DEADLINE_SECONDS,
+    ) -> EpisodeResult:
+        result = EpisodeResult(email_handle=email_handle)
+        self._tools.start_episode(budget, deadline_seconds)
+
+        prepared = self._tools.prepare_payment(email_handle)
+        result.tool_calls.append("prepare_payment")
+        if "error" in prepared:
+            self._tools.flag_for_review(email_handle, "EXTRACTION_FAILED")
+            result.tool_calls.append("flag_for_review")
+            result.error = str(prepared["error"])
+            result.calls_made = self._tools.calls_made
+            return result
+
+        payment = self._tools.pay_prepared()
+        result.tool_calls.append("pay_vendor")
+        result.payment_status = str(payment.get("status"))
+        result.reason_code = str(payment.get("reason_code"))
+        result.determining_policies = tuple(payment.get("determining_policies", ()))
+
+        if result.payment_status == "DENIED":
+            self._tools.flag_for_review(email_handle, "SUSPICIOUS_BANK_CHANGE")
+            result.tool_calls.append("flag_for_review")
+            if result.reason_code == "ACCOUNT_NOT_FROM_VENDOR_MASTER":
+                self._tools.open_bank_change_review(
+                    prepared["vendor_handle"],
+                    prepared["fields"]["bank_account"]["handle"],
+                )
+                result.tool_calls.append("open_bank_change_review")
+
+        result.calls_made = self._tools.calls_made
+        return result
+
+
 class ModelPlanner:
     """Runs one short episode per email."""
+
+    backend_name = "llm"
 
     def __init__(self, tools: AgentTools, model: Any) -> None:
         self._tools = tools
