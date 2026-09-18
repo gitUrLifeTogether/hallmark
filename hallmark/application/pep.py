@@ -27,7 +27,7 @@ from hallmark.application.fact_checkers import (
     compute_email_facts,
     compute_payment_facts,
 )
-from hallmark.domain.labels import Confidentiality
+from hallmark.domain.labels import Confidentiality, ValueType
 from hallmark.domain.lineage import EdgeKind, LineageEdge
 from hallmark.domain.mandate import Mandate
 from hallmark.domain.tools import ReasonCode, ToolOutcome, ToolResult
@@ -255,6 +255,25 @@ class PolicyEnforcementPoint:
                 return POLICY_REASONS[policy]
         return fallback
 
+    def _typed(self, run_id: str, handle: str, expected: ValueType) -> Labeled[Any]:
+        """Resolve a handle and insist it names the kind of value the slot is for.
+
+        Checking that an argument *is* a handle is not enough. An account number and an
+        amount are both digit strings, so passing one where the other belongs resolves
+        cleanly and reaches the policy engine, which then answers a question nobody asked:
+        a vendor's account read as paise is ninety-one crore, and a legitimate forty-five
+        thousand rupee invoice comes back refused for exceeding an approval limit.
+
+        The whole design rests on values being typed -- it is what makes declassification
+        safe to do at all -- so a slot that accepts any type undermines it. This failed
+        safe once, by refusing a payment that should have gone through, but the direction
+        of that error was luck rather than design.
+        """
+        value = self._resolve(run_id, handle)
+        if value.vtype is not expected:
+            raise _ArgumentWrongType(f"expected {expected}, got {value.vtype}")
+        return value
+
     # ------------------------------------------------------------- pay_vendor
 
     def pay_vendor(
@@ -271,13 +290,19 @@ class PolicyEnforcementPoint:
         started = time.perf_counter()
         try:
             vendor_value = self._resolve(run.run_id, vendor_handle)
-            account = self._resolve(run.run_id, account_handle)
-            amount = self._resolve(run.run_id, amount_handle)
-            invoice = self._resolve(run.run_id, invoice_handle)
+            account = self._typed(run.run_id, account_handle, ValueType.ACCOUNT_NUMBER)
+            amount = self._typed(run.run_id, amount_handle, ValueType.MONEY_PAISE)
+            invoice = self._typed(run.run_id, invoice_handle, ValueType.INVOICE_NUMBER)
         except _ArgumentNotAHandle:
             return ToolResult(ToolOutcome.DENIED, ReasonCode.ARG_MUST_BE_HANDLE)
         except _UnknownHandle:
             return ToolResult(ToolOutcome.DENIED, ReasonCode.UNKNOWN_HANDLE)
+        except _ArgumentWrongType:
+            return ToolResult(
+                ToolOutcome.DENIED,
+                ReasonCode.ARG_WRONG_TYPE,
+                suggested_next=("extract_invoice",),
+            )
 
         args = {
             "vendor": vendor_value,
@@ -314,6 +339,16 @@ class PolicyEnforcementPoint:
             )
         except Exception:
             # Fail closed: an enforcement bug must never become an executed payment.
+            #
+            # Logged rather than swallowed. The denial is the right outcome, but with no
+            # record of the cause an enforcement error is indistinguishable from a policy
+            # decision when read from the console, and tracing one cost an hour of a model
+            # run to reproduce. The type and message are ours, never the untrusted value.
+            logger.warning(
+                "enforcement error, failing closed",
+                extra={"tool": "pay_vendor", "runId": run.run_id},
+                exc_info=True,
+            )
             self._record(
                 run,
                 "pay_vendor",
@@ -436,6 +471,11 @@ class PolicyEnforcementPoint:
                 )
             )
         except Exception:
+            logger.warning(
+                "enforcement error, failing closed",
+                extra={"tool": "send_email", "runId": run.run_id},
+                exc_info=True,
+            )
             self._record(
                 run,
                 "send_email",
@@ -495,6 +535,10 @@ class PolicyEnforcementPoint:
 
 class _ArgumentNotAHandle(Exception):
     """A consequential argument arrived as a literal where a handle was required."""
+
+
+class _ArgumentWrongType(Exception):
+    """A handle resolved, but to the wrong kind of value for the slot it was used in."""
 
 
 class _UnknownHandle(Exception):

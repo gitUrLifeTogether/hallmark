@@ -35,15 +35,30 @@ export function isTrusted(sources: readonly Provenance[]): boolean {
   return sources.length > 0 && sources.every((s) => TRUSTED_SOURCES.has(s));
 }
 
+/** Where a value came from, said in full rather than abbreviated to a colour.
+ *
+ * The breadcrumb reads as a chain because that is what provenance is: each source is a
+ * step the value passed through, and a reader who hovers wants the route, not a verdict on
+ * it. "EXTERNAL EMAIL + READER" is a fact; "untrusted" is a conclusion, and the conclusion
+ * belongs to the policy engine.
+ */
+function breadcrumb(sources: readonly Provenance[], trusted: boolean): string {
+  if (sources.length === 0)
+    return "Unknown provenance, so treated as untrusted";
+  const chain = sources.map((s) => LABELS[s]).join(" → ");
+  return trusted
+    ? `${chain}. From company records, so a payment may go here.`
+    : `${chain}. Derived from untrusted content, so it can never be a payment's destination.`;
+}
+
 export function ProvenanceTag({ sources }: { sources: readonly Provenance[] }) {
   const trusted = isTrusted(sources);
   const text = sources.map((s) => LABELS[s]).join(" + ") || "UNKNOWN";
 
   return (
     <span
-      title={
-        trusted ? "From company records" : "Derived from untrusted content"
-      }
+      tabIndex={0}
+      title={breadcrumb(sources, trusted)}
       style={{
         display: "inline-flex",
         alignItems: "center",
@@ -57,6 +72,8 @@ export function ProvenanceTag({ sources }: { sources: readonly Provenance[] }) {
         background: trusted ? "var(--trusted-soft)" : "var(--untrusted-soft)",
         backgroundImage: trusted ? "none" : "var(--hatch)",
         border: `1px solid ${trusted ? "var(--trusted)" : "var(--untrusted)"}`,
+        cursor: "help",
+        transition: "box-shadow 160ms ease",
       }}
     >
       <span aria-hidden="true">{trusted ? "●" : "▨"}</span>

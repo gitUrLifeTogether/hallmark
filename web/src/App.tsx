@@ -3,14 +3,16 @@
  * Four views, in the order a person actually uses them: what the run did, why one decision
  * went the way it did, the message behind it, and what is waiting on a human.
  *
- * Everything shown here comes from a recorded run. The console renders decisions and
- * provenance; it never re-derives them, because a second implementation of the rules would
- * eventually disagree with the one that matters.
+ * Live run and Approvals talk to the deployed API; the rest render a recorded run. In
+ * both cases the console reports decisions and provenance and never re-derives them,
+ * because a second implementation of the rules would eventually disagree with the one
+ * that matters.
  */
 
 import { useEffect, useState } from "react";
 import { DecisionCard } from "./components/DecisionCard";
 import { Approvals } from "./features/Approvals";
+import { LiveRun } from "./features/LiveRun";
 import { Bench } from "./features/Bench";
 import { SplitReplay } from "./features/SplitReplay";
 import { LineageGraph } from "./components/LineageGraph";
@@ -23,9 +25,13 @@ import {
   POLICIES,
   RUN_SUMMARY,
 } from "./lib/demoData";
+import { useLiveRun } from "./lib/liveStore";
+import { useTheme } from "./lib/theme";
+import type { Theme } from "./lib/theme";
 import { formatPaise } from "./lib/types";
 
 type View =
+  | "live"
   | "run"
   | "replay"
   | "bench"
@@ -35,6 +41,7 @@ type View =
   | "policies";
 
 const TABS: { id: View; label: string }[] = [
+  { id: "live", label: "Live run" },
   { id: "run", label: "Run" },
   { id: "replay", label: "Split replay" },
   { id: "bench", label: "Bench" },
@@ -77,8 +84,99 @@ function viewFromHash(): View {
   return (VIEW_IDS.has(candidate) ? candidate : "run") as View;
 }
 
+/** Says which run a screen is describing.
+ *
+ * Silence here would be worse than showing the wrong run: a viewer could not tell a
+ * submitted email from the recorded example, and the console's whole subject is knowing
+ * where something came from.
+ */
+/** Light, dark, or whatever the machine asks for.
+ *
+ * Three states rather than two: a viewer who never touches this should keep following
+ * their system, not be answered once and then ignored when it changes.
+ */
+function ThemeToggle({
+  theme,
+  onChange,
+}: {
+  theme: Theme;
+  onChange: (next: Theme) => void;
+}) {
+  const options: { id: Theme; label: string; title: string }[] = [
+    { id: "system", label: "Auto", title: "Follow the system setting" },
+    { id: "light", label: "Light", title: "Always light" },
+    { id: "dark", label: "Dark", title: "Always dark" },
+  ];
+
+  return (
+    <div
+      role="group"
+      aria-label="Colour theme"
+      style={{
+        display: "inline-flex",
+        border: "1px solid var(--rule)",
+        borderRadius: 999,
+        overflow: "hidden",
+        background: "var(--surface)",
+        flexShrink: 0,
+      }}
+    >
+      {options.map((option) => {
+        const active = theme === option.id;
+        return (
+          <button
+            key={option.id}
+            type="button"
+            title={option.title}
+            aria-pressed={active}
+            onClick={() => onChange(option.id)}
+            style={{
+              padding: "5px 12px",
+              fontSize: 13,
+              border: "none",
+              cursor: "pointer",
+              background: active ? "var(--trusted)" : "transparent",
+              color: active ? "var(--surface)" : "var(--ink-2)",
+              transition: "background 160ms ease, color 160ms ease",
+            }}
+          >
+            {option.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function RunSource({ live, planner }: { live: boolean; planner?: string }) {
+  return (
+    <p style={{ margin: 0, fontSize: 13, color: "var(--ink-2)" }}>
+      {live
+        ? `Showing the run you just submitted${planner ? ` — ${planner}` : ""}.`
+        : "Showing the recorded acceptance run. Submit an email on Live run to replace it."}
+    </p>
+  );
+}
+
 export default function App() {
   const [view, setViewState] = useState<View>(viewFromHash);
+
+  // A submitted run replaces the recorded one everywhere, so every screen describes the
+  // same thing. Falling back keeps the console useful before anything has been submitted.
+  const live = useLiveRun();
+  const decisions = live?.decisions ?? DECISIONS;
+  const lineageNodes = live?.lineage.nodes ?? LINEAGE_NODES;
+  const lineageEdges = live?.lineage.edges ?? LINEAGE_EDGES;
+  const email = live?.email ?? ATTACK_EMAIL;
+  const summary = live
+    ? {
+        executed: live.counts.executed,
+        pendingApproval: live.counts.pendingApproval,
+        denied: live.counts.denied,
+        paidPaise: RUN_SUMMARY.paidPaise,
+        blockedPaise: RUN_SUMMARY.blockedPaise,
+      }
+    : RUN_SUMMARY;
 
   const setView = (next: View) => {
     setViewState(next);
@@ -92,6 +190,7 @@ export default function App() {
   }, []);
 
   const [focus, setFocus] = useState<string | undefined>("dec_000094");
+  const [theme, setTheme] = useTheme();
 
   return (
     <main
@@ -104,16 +203,26 @@ export default function App() {
       }}
     >
       <header style={{ display: "grid", gap: 8 }}>
-        <h1
+        <div
           style={{
-            fontFamily: "var(--font-display)",
-            fontSize: 40,
-            margin: 0,
-            fontWeight: 400,
+            display: "flex",
+            alignItems: "flex-start",
+            justifyContent: "space-between",
+            gap: 16,
           }}
         >
-          Hallmark Console
-        </h1>
+          <h1
+            style={{
+              fontFamily: "var(--font-display)",
+              fontSize: 40,
+              margin: 0,
+              fontWeight: 400,
+            }}
+          >
+            Hallmark Console
+          </h1>
+          <ThemeToggle theme={theme} onChange={setTheme} />
+        </div>
         <p style={{ margin: 0, color: "var(--ink-2)", maxWidth: 660 }}>
           Every value an agent handles carries a record of where it came from.
           Before a payment executes, a policy checks not only what the agent is
@@ -148,9 +257,13 @@ export default function App() {
         ))}
       </nav>
 
+      {view === "live" && <LiveRun />}
+
       {view === "run" && (
         <section style={{ display: "grid", gap: 20 }}>
+          <RunSource live={live !== null} planner={live?.plannerLabel} />
           <div
+            className="hm-card"
             style={{
               display: "flex",
               gap: 36,
@@ -163,39 +276,43 @@ export default function App() {
           >
             <Stat
               label="paid automatically"
-              value={String(RUN_SUMMARY.executed)}
+              value={String(summary.executed)}
               tone="var(--allow)"
             />
             <Stat
               label="waiting on a person"
-              value={String(RUN_SUMMARY.pendingApproval)}
+              value={String(summary.pendingApproval)}
               tone="var(--pending)"
             />
             <Stat
               label="refused"
-              value={String(RUN_SUMMARY.denied)}
+              value={String(summary.denied)}
               tone="var(--deny)"
             />
-            <Stat
-              label="total paid"
-              value={formatPaise(RUN_SUMMARY.paidPaise)}
-            />
+            <Stat label="total paid" value={formatPaise(summary.paidPaise)} />
             <Stat
               label="blocked value"
-              value={formatPaise(RUN_SUMMARY.blockedPaise)}
+              value={formatPaise(summary.blockedPaise)}
               tone="var(--deny)"
             />
           </div>
 
-          {DECISIONS.map((decision) => (
-            <DecisionCard
+          {decisions.map((decision, index) => (
+            <div
               key={decision.decisionId}
-              decision={decision}
-              onShowLineage={(id) => {
-                setFocus(id);
-                setView("lineage");
-              }}
-            />
+              className="hm-rise"
+              // Staggered so the eye follows the order the decisions were made in, and
+              // capped so a long run does not turn into a slow reveal.
+              style={{ animationDelay: `${Math.min(index, 6) * 45}ms` }}
+            >
+              <DecisionCard
+                decision={decision}
+                onShowLineage={(id) => {
+                  setFocus(id);
+                  setView("lineage");
+                }}
+              />
+            </div>
           ))}
         </section>
       )}
@@ -216,8 +333,11 @@ export default function App() {
           }}
         >
           <h2 style={{ margin: 0, fontSize: 21, fontWeight: 600 }}>
-            Why the payment to Suryodaya was refused
+            {live
+              ? "Where this run's values came from"
+              : "Why the payment to Suryodaya was refused"}
           </h2>
+          <RunSource live={live !== null} planner={live?.plannerLabel} />
           <p
             style={{
               margin: 0,
@@ -233,8 +353,8 @@ export default function App() {
             content chose which record to load.
           </p>
           <LineageGraph
-            nodes={LINEAGE_NODES}
-            edges={LINEAGE_EDGES}
+            nodes={lineageNodes}
+            edges={lineageEdges}
             focus={focus}
           />
         </section>
@@ -249,7 +369,10 @@ export default function App() {
             padding: 20,
           }}
         >
-          <SafeEmailViewer email={ATTACK_EMAIL} />
+          <div style={{ marginBottom: 12 }}>
+            <RunSource live={live !== null} planner={live?.plannerLabel} />
+          </div>
+          <SafeEmailViewer email={email} />
         </section>
       )}
 

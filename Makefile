@@ -60,6 +60,8 @@ deploy-local: ## Build and deploy the stack to the local emulator
 	$(SAMLOCAL) build --template template.yaml --build-dir "$(SAM_BUILD_DIR)"
 	@# Only deploy the template the build just produced, never a stale one.
 	$(SAMLOCAL) deploy --template-file "$(SAM_BUILD_DIR)/template.yaml" 		--stack-name hallmark --no-confirm-changeset --no-fail-on-empty-changeset 		--resolve-s3 --capabilities CAPABILITY_IAM
+	@# The console reads the API id from web/.env.local, and it changes on every recreate.
+	uv run python scripts/write_console_env.py
 
 redeploy-local: ## Delete and recreate the stack (needed after a key schema change)
 	$(require_local_endpoint)

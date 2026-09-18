@@ -10,6 +10,7 @@
  * somewhere persistent.
  */
 
+import type { RunDetail } from "./liveStore";
 import type { PendingApproval } from "./types";
 
 const BASE = "/api";
@@ -109,4 +110,43 @@ export async function decideApproval(
   decision: "APPROVE" | "REJECT",
 ): Promise<DecisionResult> {
   return request("POST", `/approvals/${approvalId}/decision`, { decision });
+}
+
+export interface RunSubmission {
+  sender: string;
+  subject: string;
+  body: string;
+  attachmentText?: string;
+}
+
+export interface RunAccepted {
+  runId: string;
+  status: string;
+}
+
+export interface RunStatus {
+  runId: string;
+  status: string;
+  summary: {
+    verdict?: string;
+    reasonCode?: string;
+    policies?: string[];
+    paid?: number;
+    error?: string;
+    plannerLabel?: string;
+    backend?: string;
+    detail?: RunDetail;
+  } | null;
+}
+
+/** Submit an email for a live run. Returns as soon as it is queued, never when it is done. */
+export async function submitRun(
+  submission: RunSubmission,
+): Promise<RunAccepted> {
+  return request("POST", "/runs", submission);
+}
+
+/** Status for a run, for a browser that reconnected and missed the events. */
+export async function getRun(runId: string): Promise<RunStatus> {
+  return request("GET", `/runs/${runId}`);
 }

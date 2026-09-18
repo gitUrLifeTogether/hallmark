@@ -40,6 +40,15 @@ DATE_WINDOW_DAYS: Final = 730  # +/- 2 years
 
 _MONEY_PATTERN: Final = re.compile(r"^\d{1,3}(?:,\d{2,3})*(?:\.\d{1,2})?$|^\d+(?:\.\d{1,2})?$")
 
+#: Currency decoration a reader adds around a number it read correctly. Stripped in the
+#: one place money is parsed, for the same reason verification forgives it: the digits
+#: are the value and the symbol is not. A reader returned "$45000.00" for a document
+#: reading "Amount: 45000.00" and the field was lost twice over -- once by the check
+#: that looks for it in the source, and again here.
+_CURRENCY: Final = re.compile(
+    r"\b(?:rs|inr|usd|eur|gbp|rupees?)\b\.?|[\u20b9$\u00a3\u20ac\u00a5]", re.IGNORECASE
+)
+
 
 class DeclassificationRejected(Exception):
     """The value did not pass its type's validator, so the planner will not see it."""
@@ -61,19 +70,30 @@ def _format_inr(paise: int) -> str:
     return f"₹{digits}.{remainder:02d}"
 
 
-def _declassify_money(value: Any) -> str:
+def parse_money_to_paise(value: Any) -> int:
+    """Turn an extracted amount into integer paise, or reject it.
+
+    The single place money is parsed. An extractor that rolled its own was stricter than
+    this one without meaning to be -- it could not read "462000.00" -- and silently dropped
+    the field, which left the planner to pass some other handle in the amount's place. The
+    resulting enforcement error was correct but unreadable, and it cost an hour to trace.
+    """
     if isinstance(value, bool):
         raise DeclassificationRejected("boolean is not an amount")
     if isinstance(value, int):
         paise = value
     else:
-        text = str(value).strip().replace("₹", "").strip()
+        text = _CURRENCY.sub("", str(value)).strip()
         if not _MONEY_PATTERN.match(text):
             raise DeclassificationRejected("amount is not a plain number")
         paise = int(round(float(text.replace(",", "")) * 100))
     if not MIN_PAISE <= paise <= MAX_PAISE:
         raise DeclassificationRejected("amount outside the permitted range")
-    return _format_inr(paise)
+    return paise
+
+
+def _declassify_money(value: Any) -> str:
+    return _format_inr(parse_money_to_paise(value))
 
 
 def _declassify_date(value: Any, today: date | None = None) -> str:

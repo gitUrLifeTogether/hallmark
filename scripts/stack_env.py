@@ -26,6 +26,7 @@ EXPORTS = {
     "ApprovalsTable": "APPROVALS_TABLE",
     "ArtifactsBucket": "ARTIFACTS_BUCKET",
     "ConsoleEventsQueue": "CONSOLE_EVENTS_QUEUE",
+    "RunRequestsQueue": "RUN_REQUESTS_QUEUE",
     "HallmarkBus": "EVENT_BUS",
 }
 

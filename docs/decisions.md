@@ -445,3 +445,153 @@ same operations immediately afterwards.
 **Consequences:** One fewer Python process per CLI call, which matters on this machine. The
 `LOCAL_ONLY` guard in the `Makefile` already validates `AWS_ENDPOINT_URL`, so pointing the
 real CLI at it is no less safe than `awslocal`.
+
+## ADR-0021: One money parser, in the domain
+
+**Context:** the extractor parsed amounts with `int(text.replace(",", "")) * 100`, which
+reads `462000` and raises on `462000.00`. On the exception it dropped the field. The
+planner, left with no amount handle, passed another value's handle in its place, and the
+enforcement point failed closed with `ENFORCEMENT_ERROR` — the safe outcome, reached for a
+reason that appeared nowhere. Declassification already had a parser that handled paise
+correctly, so there were two implementations and the stricter one was silently losing data.
+
+**Decision:** `parse_money_to_paise` lives in `hallmark/domain/declassify.py` and is the
+only place money is parsed. An amount that cannot be read raises `AMOUNT_UNREADABLE` in
+`extraction_warnings` rather than disappearing.
+
+**Consequences:** the planner either has an amount handle or knows it does not. Seventeen
+tests cover the shapes a real invoice uses. Two parsers for one concept is worth treating
+as a defect on sight, whichever one looks correct.
+
+## ADR-0022: Enforcement errors are logged with their cause
+
+**Context:** the fail-closed handler caught every exception and recorded
+`ENFORCEMENT_ERROR` without logging what was caught. Read from the console, an enforcement
+bug and a policy decision were indistinguishable. Diagnosing one cost a 55-minute model run
+to reproduce.
+
+**Decision:** log the exception with `exc_info` before recording the denial. The type and
+message are ours; no untrusted value is logged.
+
+**Consequences:** the denial is unchanged — it was always right. Failing closed is a
+guarantee about behaviour, not a reason to discard the evidence.
+
+## ADR-0023: Bound a model call, not only an episode
+
+**Context:** an episode carries a deadline, and a timed-out one is abandoned because Python
+cannot stop a thread. Without a per-call timeout the abandoned episode kept issuing requests
+against the model server the next run depended on. Two strays turned a one-word completion
+from four seconds into five minutes, which reads exactly like a starved machine — and sent
+me measuring free memory rather than looking at what I had left running.
+
+**Decision:** the planner model is built with `ollama_client_args={"timeout": ...}`; the
+reader already had one. `EPISODE_DEADLINE_SECONDS`, `WATCHDOG_GRACE_SECONDS` and
+`MODEL_CALL_TIMEOUT_SECONDS` all come from the environment.
+
+**Consequences:** an abandoned episode stops within one call. Work that cannot be cancelled
+has to be bounded wherever it touches a shared resource, or a timeout becomes a slow leak
+that degrades everything after it.
+
+## ADR-0024: The live planner must be able to see a bank change
+
+**Context:** the model planner's prompt said to pay the account on file, always. That is
+safe, and it made the demonstration meaningless: no untrusted account ever reached the
+account rule, so the rule was never exercised. It is the same fault as the first M1
+acceptance test, which passed while testing nothing, and which ADR-0009 fixed for the
+scripted planner by making it credulous.
+
+**Decision:** `lookup_vendor` returns the masked account on file beside the handle, so the
+planner can notice that an invoice proposes a different account without seeing either
+number. The prompt then follows the scripted planner: same account, use the record;
+different account, follow the document.
+
+**Consequences:** the attack reaches the policy that is supposed to stop it. A demo where
+the agent behaves perfectly proves nothing about the enforcement layer, and the safer the
+planner is made, the less the guarantee is tested.
+
+## ADR-0025: The deploy writes the console's API address
+
+**Context:** `web/.env.local` carried a comment saying the deploy wrote it. Nothing did.
+The REST API id changes on every stack recreate, so after one the console called the
+previous deployment and every request failed with a 404 that read as a broken API.
+
+**Decision:** `scripts/write_console_env.py` runs at the end of `make deploy-local`.
+
+**Consequences:** the file cannot drift from the stack. A comment claiming something is
+automated is worth checking rather than believing.
+
+## ADR-0026: An exhausted budget does not stop a Strands loop
+
+**Context:** the call budget made every further tool call a no-op while the agent loop kept
+running, so a model that never finishes keeps spending inferences. The wrappers were
+changed to raise `EpisodeFinished`, on the strength of a test in which an exception
+appeared to escape `agent()`.
+
+**It does not.** A later run made eleven tool calls against a budget of eight: Strands
+catches a tool's exception and feeds it back to the model. The run ended because the model
+eventually produced a final answer, not because the guard stopped it. The test that seemed
+to show otherwise was polluted by a concurrent run holding the model server, and the
+exception that escaped was a client timeout rather than the one raised in the tool.
+
+**Decision:** keep the guard — it makes the surplus calls cheap and records the intent —
+but the real bound is the episode deadline and the per-call timeout, not the exception.
+Stopping the loop properly needs a framework-level hook rather than an exception.
+
+**Consequences:** a confused model can still cost a few extra inferences. An exception is
+only a control-flow mechanism if the framework in between agrees to let it through, and a
+timing test run next to other work measures the other work.
+
+## ADR-0027: An executed payment outranks a later refusal
+
+**Context:** the run summary reported the last payment decision. A small model that pays an
+invoice and then tries the same one again gets the retry refused as a duplicate, which is
+correct behaviour — but the summary then reported `DENIED` for a run in which the money had
+moved, with `paid: 1` sitting beside it.
+
+**Decision:** if any decision executed, that is the verdict. Otherwise the last refusal is.
+
+**Consequences:** the verdict agrees with the ledger. "Most recent" is not the same as
+"decisive", and for anything that moves money the strongest fact wins rather than the
+latest one.
+
+## ADR-0028: A handle argument must be the right kind of value
+
+**Context:** the enforcement point checked that a consequential argument *was* a handle, not
+that it named the kind of value the slot was for. A planner that skipped extraction passed
+the vendor's account-number handle in the amount slot. Both are digit strings, so it
+resolved cleanly and reached the policy engine, which read a twelve-digit account number as
+paise — ₹91,10,20,033 — and refused a ₹45,000 invoice under
+`pay-above-auto-limit-needs-human`. The engine answered correctly; it had been asked the
+wrong question.
+
+It is the same confusion behind the earlier `ENFORCEMENT_ERROR`, where an invoice number
+arrived in the amount slot and `int()` threw. That one failed loudly. This one failed
+quietly, with a plausible-looking policy citation, which is worse.
+
+**Decision:** `pay_vendor` resolves each handle against an expected `ValueType` and refuses
+anything else with `ARG_WRONG_TYPE`, before any fact is computed or policy consulted. The
+refusal suggests `extract_invoice`, because a planner that substituted a handle usually
+never obtained the right one.
+
+**Consequences:** a wrong argument is now named rather than judged. Typed values are what
+make declassification safe to do at all, so a slot that accepts any type undermines the
+design that everything else rests on. Both instances failed safe, and in neither case was
+that by design — which is the part worth remembering.
+
+## ADR-0029: A decided payment ends the episode soon after
+
+**Context:** one attack run made nineteen tool calls over twenty-eight minutes. The real
+work was finished by the tenth — the payment refused, the email flagged, a bank change
+review opened — and the rest was a small model failing to stop. A call budget never catches
+this, because refusing a call is not the same as ending an episode (ADR-0026), so the run
+sat until the deadline and was then reported as timed out.
+
+**Decision:** when a payment reaches a final outcome the deadline is brought forward to
+ninety seconds, which is enough for the follow-up a denial calls for and not enough for the
+loop that tends to follow. An episode abandoned *after* its payment was decided is reported
+as completed with `plannerDidNotStop`, not as a timeout: the enforcement point had already
+decided, and calling that unfinished would misreport a settled verdict.
+
+**Consequences:** the attack case ends shortly after the decision rather than at the
+deadline. A timeout now means what it says — that nothing was decided — rather than that
+the planner would not stop talking about something already settled.
