@@ -28,6 +28,7 @@ const VERDICT_COLOUR: Record<Decision["outcome"], string> = {
 function VerdictStamp({ outcome }: { outcome: Decision["outcome"] }) {
   return (
     <span
+      className="hm-stamp"
       style={{
         fontFamily: "var(--font-display)",
         fontSize: 17,
@@ -57,6 +58,7 @@ export function DecisionCard({
 
   return (
     <article
+      className="hm-card"
       style={{
         background: "var(--surface)",
         border: "1px solid var(--rule)",

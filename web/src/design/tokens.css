@@ -115,3 +115,73 @@ code,
     transition-duration: 0.01ms !important;
   }
 }
+
+/* --- Motion -----------------------------------------------------------------
+ * The evidence-room language is calm and physical: a verdict is stamped, a panel
+ * settles. Nothing bounces, nothing glows. Every animation here is short enough
+ * that a reader notices the change and not the effect.
+ *
+ * All of it is switched off under prefers-reduced-motion. That is not a courtesy:
+ * a stamp that rotates into place is exactly the kind of movement that makes some
+ * people ill, and the console is readable without a single frame of it.
+ */
+@keyframes hm-stamp {
+  from {
+    opacity: 0;
+    transform: rotate(-2deg) scale(1.08);
+  }
+  to {
+    opacity: 1;
+    transform: rotate(-2deg) scale(1);
+  }
+}
+
+@keyframes hm-rise {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.hm-stamp {
+  animation: hm-stamp 180ms cubic-bezier(0.2, 0.8, 0.3, 1) both;
+}
+
+.hm-rise {
+  animation: hm-rise 200ms ease-out both;
+}
+
+/* A card lifts slightly when pointed at, the way a page does when you pick it up. */
+.hm-card {
+  transition:
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    transform 160ms ease;
+}
+
+.hm-card:hover {
+  border-color: color-mix(in srgb, var(--ink-3) 45%, var(--rule));
+  box-shadow: var(--shadow-1);
+}
+
+/* Focus is never removed, only made to match the rest. */
+.hm-card:focus-visible,
+button:focus-visible {
+  outline: 2px solid var(--info);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hm-stamp,
+  .hm-rise {
+    animation: none;
+  }
+
+  .hm-card {
+    transition: none;
+  }
+}
