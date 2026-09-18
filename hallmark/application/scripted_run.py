@@ -58,17 +58,33 @@ class RegexInvoiceReader:
     def extract(self, source_text: str) -> InvoiceExtraction:
         import re
 
-        def find(pattern: str) -> str | None:
-            match = re.search(pattern, source_text, re.IGNORECASE)
-            return match.group(1).strip() if match else None
+        def first(*patterns: str) -> str | None:
+            """The first pattern that matches, so one wording is not privileged.
+
+            The fixtures write "Total INR 4,62,000" and a person typing an invoice into
+            the console writes "Amount: 462000.00". Reading only the first shape made the
+            scripted planner look broken on anything a person actually wrote, which is
+            the opposite of what a deterministic fallback is for.
+            """
+            for pattern in patterns:
+                match = re.search(pattern, source_text, re.IGNORECASE)
+                if match:
+                    return match.group(1).strip()
+            return None
 
         return InvoiceExtraction(
-            gstin=find(r"GSTIN:\s*([0-9A-Z]+)"),
-            invoice_number=find(r"[Ii]nvoice\s+(INV-[A-Z0-9\-]+)"),
-            amount=find(r"INR\s+([0-9,]+)"),
-            due_date=find(r"Due date:\s*([0-9\-/]+)"),
-            bank_account=find(r"Account:\s*([0-9]+)"),
-            ifsc=find(r"IFSC:\s*([A-Z0-9]+)"),
+            gstin=first(r"GSTIN:?\s*([0-9A-Z]+)"),
+            invoice_number=first(
+                r"invoice\s*(?:number|no\.?|#)?\s*:?\s*(INV-[A-Z0-9\-]+)",
+                r"(INV-[A-Z0-9\-]+)",
+            ),
+            amount=first(
+                r"(?:amount|total)\s*:?\s*(?:INR|Rs\.?|₹|\$)?\s*([0-9][0-9,]*(?:\.[0-9]{1,2})?)",
+                r"(?:INR|Rs\.?|₹|\$)\s*([0-9][0-9,]*(?:\.[0-9]{1,2})?)",
+            ),
+            due_date=first(r"due\s*(?:date)?\s*:?\s*([0-9]{4}-[0-9]{2}-[0-9]{2}|[0-9/\-]{8,10})"),
+            bank_account=first(r"(?:bank\s*)?account\s*(?:number|no\.?)?\s*:?\s*([0-9]{9,18})"),
+            ifsc=first(r"IFSC\s*(?:code)?\s*:?\s*([A-Z]{4}0[A-Z0-9]{6})"),
         )
 
 
