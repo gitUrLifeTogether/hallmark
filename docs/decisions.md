@@ -577,3 +577,21 @@ never obtained the right one.
 make declassification safe to do at all, so a slot that accepts any type undermines the
 design that everything else rests on. Both instances failed safe, and in neither case was
 that by design — which is the part worth remembering.
+
+## ADR-0029: A decided payment ends the episode soon after
+
+**Context:** one attack run made nineteen tool calls over twenty-eight minutes. The real
+work was finished by the tenth — the payment refused, the email flagged, a bank change
+review opened — and the rest was a small model failing to stop. A call budget never catches
+this, because refusing a call is not the same as ending an episode (ADR-0026), so the run
+sat until the deadline and was then reported as timed out.
+
+**Decision:** when a payment reaches a final outcome the deadline is brought forward to
+ninety seconds, which is enough for the follow-up a denial calls for and not enough for the
+loop that tends to follow. An episode abandoned *after* its payment was decided is reported
+as completed with `plannerDidNotStop`, not as a timeout: the enforcement point had already
+decided, and calling that unfinished would misreport a settled verdict.
+
+**Consequences:** the attack case ends shortly after the decision rather than at the
+deadline. A timeout now means what it says — that nothing was decided — rather than that
+the planner would not stop talking about something already settled.

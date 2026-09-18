@@ -217,15 +217,22 @@ def process(run_id: str, store: Any, events: Any) -> None:
         handle = listing["emails"][0]["email_handle"]
         planner = ModelPlanner(tools, build_planner_model(OLLAMA_HOST, MODEL))
 
-        timed_out = not _run_with_watchdog(planner, handle)
+        abandoned = not _run_with_watchdog(planner, handle)
         summary = summarise(decisions, ledger, run_id, tools.attempts)
-        if timed_out:
-            # Reported, not hidden. Nothing executed -- work only happens after the
-            # enforcement point permits it, and it is not on this path.
+
+        if not abandoned:
+            status = "COMPLETED"
+        elif tools.payment_decided:
+            # The episode was abandoned, but its verdict was settled before that: the
+            # enforcement point had already decided, and the planner simply would not stop
+            # talking afterwards. Calling that a timeout would report a finished decision
+            # as an unfinished run.
+            summary = {**summary, "plannerDidNotStop": True}
+            status = "COMPLETED"
+        else:
+            # Nothing was decided, so there is nothing to report but the giving up.
             summary = {**summary, "timedOut": True}
             status = "TIMED_OUT"
-        else:
-            status = "COMPLETED"
     except Exception as exc:  # noqa: BLE001
         # A failed episode is a utility failure, never a security one: nothing executes
         # unless the enforcement point permitted it, and it is not on this path.

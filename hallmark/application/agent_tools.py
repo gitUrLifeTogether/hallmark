@@ -28,6 +28,15 @@ from hallmark.ports.stores import Clock, IdGenerator, LineageStore, ValueStore
 
 logger = logging.getLogger(__name__)
 
+WRAPUP_SECONDS = 90.0
+"""How long an episode may continue after its payment has been decided.
+
+Enough for the follow-up a denial calls for -- flagging it, and opening a bank change
+review -- and not enough for the loop a small model falls into afterwards. One run made
+nineteen tool calls: the real work was done by the tenth and the rest was the model
+failing to stop, which no call budget catches because refusing a call is not ending one.
+"""
+
 #: Which extracted field becomes which kind of value.
 EXTRACTED_FIELD_TYPES: dict[str, ValueType] = {
     "gstin": ValueType.GSTIN,
@@ -124,6 +133,9 @@ class AgentTools:
         self.call_budget: int | None = None
         self.calls_made = 0
         self.deadline: float | None = None
+        #: Set once a payment has a final outcome. From then on the run's verdict is
+        #: settled, whatever the planner does next.
+        self.payment_decided = False
 
     def start_episode(self, budget: int, deadline_seconds: float | None = None) -> None:
         """Begin one email's episode with a fresh call budget and optional deadline.
@@ -134,6 +146,7 @@ class AgentTools:
         """
         self.call_budget = budget
         self.calls_made = 0
+        self.payment_decided = False
         self.deadline = None if deadline_seconds is None else time.monotonic() + deadline_seconds
 
     def out_of_time(self) -> bool:
@@ -469,7 +482,20 @@ class AgentTools:
         if result.suggested_next:
             payload["suggested_next"] = list(result.suggested_next)
         self.attempts.append({"tool": "pay_vendor", **payload})
+
+        if payload["status"] in ("EXECUTED", "DENIED", "PENDING_APPROVAL"):
+            self._settle()
         return payload
+
+    def _settle(self) -> None:
+        """Bring the deadline forward now that the verdict is decided.
+
+        Everything the episode existed to determine has been determined. What remains is
+        the follow-up a denial calls for, which is quick, and then the planner should stop.
+        """
+        self.payment_decided = True
+        wrapup = time.monotonic() + WRAPUP_SECONDS
+        self.deadline = wrapup if self.deadline is None else min(self.deadline, wrapup)
 
     def send_email(
         self, recipient_handle: str, template_id: str, attachment_handles: list[str] | None = None
