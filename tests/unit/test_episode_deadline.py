@@ -9,6 +9,9 @@ from __future__ import annotations
 
 import time
 
+import pytest
+
+from hallmark.application.planner import EpisodeFinished, _stop_if_spent
 from tests.unit.helpers import build_tools_for_test
 
 
@@ -63,3 +66,30 @@ def test_starting_a_new_episode_resets_the_clock() -> None:
     tools.start_episode(8, deadline_seconds=60)
 
     assert tools.out_of_time() is False
+
+
+def test_an_exhausted_budget_stops_the_episode_rather_than_refusing_forever() -> None:
+    """Refusing the work is not the same as stopping it.
+
+    A budget that only made each further call a no-op left the agent loop running, and a
+    model that never says DONE kept spending inferences until the deadline: ten tool calls
+    against a budget of eight, every one of them refused.
+    """
+    tools = build_tools_for_test()
+    tools.start_episode(2)
+
+    _stop_if_spent(tools)  # nothing spent yet
+    tools._spend_call("read_email")
+    tools._spend_call("read_email")
+
+    with pytest.raises(EpisodeFinished):
+        _stop_if_spent(tools)
+
+
+def test_a_passed_deadline_also_stops_the_episode() -> None:
+    tools = build_tools_for_test()
+    tools.start_episode(8, deadline_seconds=0.05)
+    time.sleep(0.1)
+
+    with pytest.raises(EpisodeFinished):
+        _stop_if_spent(tools)

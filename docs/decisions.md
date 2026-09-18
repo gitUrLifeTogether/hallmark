@@ -445,3 +445,77 @@ same operations immediately afterwards.
 **Consequences:** One fewer Python process per CLI call, which matters on this machine. The
 `LOCAL_ONLY` guard in the `Makefile` already validates `AWS_ENDPOINT_URL`, so pointing the
 real CLI at it is no less safe than `awslocal`.
+
+## ADR-0021: One money parser, in the domain
+
+**Context:** the extractor parsed amounts with `int(text.replace(",", "")) * 100`, which
+reads `462000` and raises on `462000.00`. On the exception it dropped the field. The
+planner, left with no amount handle, passed another value's handle in its place, and the
+enforcement point failed closed with `ENFORCEMENT_ERROR` — the safe outcome, reached for a
+reason that appeared nowhere. Declassification already had a parser that handled paise
+correctly, so there were two implementations and the stricter one was silently losing data.
+
+**Decision:** `parse_money_to_paise` lives in `hallmark/domain/declassify.py` and is the
+only place money is parsed. An amount that cannot be read raises `AMOUNT_UNREADABLE` in
+`extraction_warnings` rather than disappearing.
+
+**Consequences:** the planner either has an amount handle or knows it does not. Seventeen
+tests cover the shapes a real invoice uses. Two parsers for one concept is worth treating
+as a defect on sight, whichever one looks correct.
+
+## ADR-0022: Enforcement errors are logged with their cause
+
+**Context:** the fail-closed handler caught every exception and recorded
+`ENFORCEMENT_ERROR` without logging what was caught. Read from the console, an enforcement
+bug and a policy decision were indistinguishable. Diagnosing one cost a 55-minute model run
+to reproduce.
+
+**Decision:** log the exception with `exc_info` before recording the denial. The type and
+message are ours; no untrusted value is logged.
+
+**Consequences:** the denial is unchanged — it was always right. Failing closed is a
+guarantee about behaviour, not a reason to discard the evidence.
+
+## ADR-0023: Bound a model call, not only an episode
+
+**Context:** an episode carries a deadline, and a timed-out one is abandoned because Python
+cannot stop a thread. Without a per-call timeout the abandoned episode kept issuing requests
+against the model server the next run depended on. Two strays turned a one-word completion
+from four seconds into five minutes, which reads exactly like a starved machine — and sent
+me measuring free memory rather than looking at what I had left running.
+
+**Decision:** the planner model is built with `ollama_client_args={"timeout": ...}`; the
+reader already had one. `EPISODE_DEADLINE_SECONDS`, `WATCHDOG_GRACE_SECONDS` and
+`MODEL_CALL_TIMEOUT_SECONDS` all come from the environment.
+
+**Consequences:** an abandoned episode stops within one call. Work that cannot be cancelled
+has to be bounded wherever it touches a shared resource, or a timeout becomes a slow leak
+that degrades everything after it.
+
+## ADR-0024: The live planner must be able to see a bank change
+
+**Context:** the model planner's prompt said to pay the account on file, always. That is
+safe, and it made the demonstration meaningless: no untrusted account ever reached the
+account rule, so the rule was never exercised. It is the same fault as the first M1
+acceptance test, which passed while testing nothing, and which ADR-0009 fixed for the
+scripted planner by making it credulous.
+
+**Decision:** `lookup_vendor` returns the masked account on file beside the handle, so the
+planner can notice that an invoice proposes a different account without seeing either
+number. The prompt then follows the scripted planner: same account, use the record;
+different account, follow the document.
+
+**Consequences:** the attack reaches the policy that is supposed to stop it. A demo where
+the agent behaves perfectly proves nothing about the enforcement layer, and the safer the
+planner is made, the less the guarantee is tested.
+
+## ADR-0025: The deploy writes the console's API address
+
+**Context:** `web/.env.local` carried a comment saying the deploy wrote it. Nothing did.
+The REST API id changes on every stack recreate, so after one the console called the
+previous deployment and every request failed with a 404 that read as a broken API.
+
+**Decision:** `scripts/write_console_env.py` runs at the end of `make deploy-local`.
+
+**Consequences:** the file cannot drift from the stack. A comment claiming something is
+automated is worth checking rather than believing.

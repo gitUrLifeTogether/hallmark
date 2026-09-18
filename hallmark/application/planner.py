@@ -106,6 +106,23 @@ class RecordingModelWrapper:
         return await self._inner.stream(*args, **kwargs)
 
 
+class EpisodeFinished(Exception):
+    """Raised inside a tool wrapper to end an episode that has used up its budget.
+
+    Exhausting the budget used to make every further call a no-op while leaving the agent
+    loop running, so a model that never says DONE kept spending inferences until the
+    deadline -- ten tool calls against a budget of eight, all of them refused. Refusing the
+    work is not the same as stopping the work.
+    """
+
+
+def _stop_if_spent(tools: AgentTools) -> None:
+    if tools.call_budget is not None and tools.calls_made >= tools.call_budget:
+        raise EpisodeFinished("call budget exhausted")
+    if tools.out_of_time():
+        raise EpisodeFinished("episode deadline passed")
+
+
 def build_strands_tools(tools: AgentTools) -> list[Any]:
     """Expose the tool surface to Strands, one thin wrapper per tool.
 
@@ -122,6 +139,7 @@ def build_strands_tools(tools: AgentTools) -> list[Any]:
         Args:
             email_handle: handle from list_inbox
         """
+        _stop_if_spent(tools)
         return tools.read_email(email_handle)
 
     @tool
@@ -131,6 +149,7 @@ def build_strands_tools(tools: AgentTools) -> list[Any]:
         Args:
             source_handle: the body_handle from read_email
         """
+        _stop_if_spent(tools)
         return tools.extract_invoice(source_handle)
 
     @tool
@@ -141,6 +160,7 @@ def build_strands_tools(tools: AgentTools) -> list[Any]:
             gstin_handle: handle of the extracted GSTIN
             sender_domain_handle: handle from read_email
         """
+        _stop_if_spent(tools)
         return tools.lookup_vendor(gstin_handle, sender_domain_handle)
 
     @tool
@@ -158,6 +178,7 @@ def build_strands_tools(tools: AgentTools) -> list[Any]:
             amount_handle: handle of the extracted amount
             invoice_handle: handle of the extracted invoice number
         """
+        _stop_if_spent(tools)
         return tools.pay_vendor(
             vendor_handle=vendor_handle,
             account_handle=account_handle,
@@ -175,6 +196,7 @@ def build_strands_tools(tools: AgentTools) -> list[Any]:
             reason: SUSPICIOUS_BANK_CHANGE, DUPLICATE, VENDOR_MISMATCH, ABOVE_LIMIT,
                 EXTRACTION_FAILED or OTHER
         """
+        _stop_if_spent(tools)
         return tools.flag_for_review(handle, reason)
 
     @tool
@@ -185,6 +207,7 @@ def build_strands_tools(tools: AgentTools) -> list[Any]:
             vendor_handle: the supplier concerned
             proposed_account_handle: the account the document asked for
         """
+        _stop_if_spent(tools)
         return tools.open_bank_change_review(vendor_handle, proposed_account_handle)
 
     return [
@@ -252,6 +275,9 @@ class ModelPlanner:
 
         try:
             agent(f"Process the email with handle {email_handle}.")
+        except EpisodeFinished:
+            # A normal ending, not a fault: the episode stopped itself.
+            pass
         except Exception as exc:  # noqa: BLE001 - surfaced as a run outcome, not raised
             result.error = type(exc).__name__
 
