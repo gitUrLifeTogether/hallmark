@@ -18,6 +18,13 @@ from hallmark.domain.declassify import DeclassificationRejected, parse_money_to_
 @pytest.mark.parametrize(
     ("written", "paise"),
     [
+        ("$45000.00", 4_500_000),
+        # Moved here from the rejected cases when currency stripping was added. A trailing
+        # code is an ordinary way to write an amount, and refusing it cost the planner a
+        # field it needed; the digits are still required to be the ones in the document.
+        ("462000.00 INR", 46_200_000),
+        ("Rs 45000.00", 4_500_000),
+        ("INR 4,62,000", 46_200_000),
         ("462000", 46_200_000),
         ("462000.00", 46_200_000),
         ("462000.50", 46_200_050),
@@ -36,7 +43,6 @@ def test_the_ways_an_invoice_writes_an_amount(written: str, paise: int) -> None:
     "written",
     [
         "INV-SM-2291",
-        "462000.00 INR",
         "four lakh",
         "",
         "-100",

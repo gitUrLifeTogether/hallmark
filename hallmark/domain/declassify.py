@@ -40,6 +40,15 @@ DATE_WINDOW_DAYS: Final = 730  # +/- 2 years
 
 _MONEY_PATTERN: Final = re.compile(r"^\d{1,3}(?:,\d{2,3})*(?:\.\d{1,2})?$|^\d+(?:\.\d{1,2})?$")
 
+#: Currency decoration a reader adds around a number it read correctly. Stripped in the
+#: one place money is parsed, for the same reason verification forgives it: the digits
+#: are the value and the symbol is not. A reader returned "$45000.00" for a document
+#: reading "Amount: 45000.00" and the field was lost twice over -- once by the check
+#: that looks for it in the source, and again here.
+_CURRENCY: Final = re.compile(
+    r"\b(?:rs|inr|usd|eur|gbp|rupees?)\b\.?|[\u20b9$\u00a3\u20ac\u00a5]", re.IGNORECASE
+)
+
 
 class DeclassificationRejected(Exception):
     """The value did not pass its type's validator, so the planner will not see it."""
@@ -74,7 +83,7 @@ def parse_money_to_paise(value: Any) -> int:
     if isinstance(value, int):
         paise = value
     else:
-        text = str(value).strip().replace("₹", "").strip()
+        text = _CURRENCY.sub("", str(value)).strip()
         if not _MONEY_PATTERN.match(text):
             raise DeclassificationRejected("amount is not a plain number")
         paise = int(round(float(text.replace(",", "")) * 100))
