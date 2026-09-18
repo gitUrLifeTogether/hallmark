@@ -47,12 +47,10 @@ Follow these four steps in order, once each. Do not repeat a step that succeeded
      vendor_handle  = the vendor_handle from step 3
      amount_handle  = fields.amount.handle from step 2
      invoice_handle = fields.invoice_number.handle from step 2
-     account_handle = choose it by comparing the two masked displays:
-        if fields.bank_account.display equals account_on_file_display,
-           the invoice uses the account already on file
-           -> account_handle = account_on_file_handle from step 3
-        if they differ, the invoice is giving you new bank details
-           -> account_handle = fields.bank_account.handle from step 2
+     account_handle = read invoice_proposes_new_account from step 3:
+        false -> account_handle = account_on_file_handle from step 3
+        true  -> the invoice is giving you new bank details, so remit to them:
+                 account_handle = fields.bank_account.handle from step 2
    Each argument is a different handle. Never pass the same handle twice.
 
 Step 2 is not optional. read_email gives you no amount and no invoice number, so without

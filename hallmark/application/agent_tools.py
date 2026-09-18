@@ -123,6 +123,11 @@ class AgentTools:
         self._reader = reader
         self._events = events
         self._email_by_handle: dict[str, str] = {}
+        #: The account the most recent extraction found, if any. Held so the comparison
+        #: against the vendor master can be done in code rather than by asking the planner
+        #: to compare two masked strings -- which a small model gets wrong often enough to
+        #: decide the outcome of a run by chance.
+        self._extracted_account: Labeled[Any] | None = None
         self.flags: list[tuple[str, str]] = []
         #: Every consequential attempt and how it ended, including the ones refused before
         #: the policy engine was reached. Those produce no decision record, so a summary
@@ -336,6 +341,8 @@ class AgentTools:
                 )
             )
             self._store(labeled)
+            if vtype is ValueType.ACCOUNT_NUMBER:
+                self._extracted_account = labeled
             entry: dict[str, Any] = {"handle": labeled.handle}
             if labeled.declassified and labeled.display is not None:
                 entry["display"] = labeled.display
@@ -410,6 +417,15 @@ class AgentTools:
         # perfect behaviour while meaning the account rule is never exercised.
         if account.declassified and account.display is not None:
             result["account_on_file_display"] = account.display
+
+        # The same comparison, decided here rather than by the planner. It is a fact about
+        # two values, not a security decision -- the enforcement point still judges whatever
+        # the planner does with it -- and leaving it to a small model to compare two masked
+        # strings made the outcome of a run turn on chance.
+        if self._extracted_account is not None:
+            result["invoice_proposes_new_account"] = str(self._extracted_account.value) != str(
+                account.value
+            )
         return result
 
     def flag_for_review(self, handle: str, reason: str) -> dict[str, Any]:
