@@ -553,3 +553,27 @@ moved, with `paid: 1` sitting beside it.
 **Consequences:** the verdict agrees with the ledger. "Most recent" is not the same as
 "decisive", and for anything that moves money the strongest fact wins rather than the
 latest one.
+
+## ADR-0028: A handle argument must be the right kind of value
+
+**Context:** the enforcement point checked that a consequential argument *was* a handle, not
+that it named the kind of value the slot was for. A planner that skipped extraction passed
+the vendor's account-number handle in the amount slot. Both are digit strings, so it
+resolved cleanly and reached the policy engine, which read a twelve-digit account number as
+paise — ₹91,10,20,033 — and refused a ₹45,000 invoice under
+`pay-above-auto-limit-needs-human`. The engine answered correctly; it had been asked the
+wrong question.
+
+It is the same confusion behind the earlier `ENFORCEMENT_ERROR`, where an invoice number
+arrived in the amount slot and `int()` threw. That one failed loudly. This one failed
+quietly, with a plausible-looking policy citation, which is worse.
+
+**Decision:** `pay_vendor` resolves each handle against an expected `ValueType` and refuses
+anything else with `ARG_WRONG_TYPE`, before any fact is computed or policy consulted. The
+refusal suggests `extract_invoice`, because a planner that substituted a handle usually
+never obtained the right one.
+
+**Consequences:** a wrong argument is now named rather than judged. Typed values are what
+make declassification safe to do at all, so a slot that accepts any type undermines the
+design that everything else rests on. Both instances failed safe, and in neither case was
+that by design — which is the part worth remembering.

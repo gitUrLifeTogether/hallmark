@@ -161,7 +161,7 @@ const VERDICT_COPY: Record<
     label: "BLOCKED",
     tone: "var(--deny)",
     detail:
-      "Refused before the policy engine was reached — an argument was not a handle, so the call never became a request. Shown separately because no policy decided it.",
+      "Refused before the policy engine was reached — an argument was missing, or was the wrong kind of value. Shown separately because no policy decided it: the call never became a question worth asking.",
   },
   NO_PAYMENT_ATTEMPTED: {
     label: "NO PAYMENT",

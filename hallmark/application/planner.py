@@ -55,6 +55,10 @@ Follow these four steps in order, once each. Do not repeat a step that succeeded
            -> account_handle = fields.bank_account.handle from step 2
    Each argument is a different handle. Never pass the same handle twice.
 
+Step 2 is not optional. read_email gives you no amount and no invoice number, so without
+extract_invoice you do not have the handles step 4 needs. Substituting another handle is
+refused with ARG_WRONG_TYPE: an account number is not an amount, whatever it looks like.
+
 If step 2 did not return fields.amount.handle, or any handle you need is missing, do not
 guess and do not substitute another handle: call flag_for_review and stop.
 
