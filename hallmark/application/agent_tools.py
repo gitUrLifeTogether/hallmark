@@ -428,6 +428,43 @@ class AgentTools:
             )
         return result
 
+    def prepare_payment(self, email_handle: str) -> dict[str, Any]:
+        """Read an email, extract its invoice and identify the supplier, in one step.
+
+        The three calls this replaces are unchanged and still used by the scripted planner
+        and the tests; this only removes the chance to get their order wrong. A small model
+        skips steps -- one run went read_email, flag_for_review, extract_invoice, pay_vendor,
+        never looking the vendor up at all, then invented a handle for the account and was
+        refused for naming one that does not exist. No wording of the procedure fixed that,
+        so the procedure stopped being something to remember.
+
+        Nothing about enforcement changes. The planner still chooses which account to pay,
+        which is the decision the whole demonstration is about.
+        """
+        email = self.read_email(email_handle)
+        if "error" in email:
+            return email
+
+        extraction = self.extract_invoice(email["body_handle"])
+        fields = extraction.get("fields", {})
+        if "gstin" not in fields:
+            return {
+                "error": "EXTRACTION_INCOMPLETE",
+                "extraction_warnings": extraction.get("extraction_warnings", []),
+                "suggested_next": ["flag_for_review"],
+            }
+
+        vendor = self.lookup_vendor(fields["gstin"]["handle"], email["sender_domain_handle"])
+        if not vendor.get("found"):
+            return {"error": "VENDOR_NOT_FOUND", "suggested_next": ["flag_for_review"]}
+
+        return {
+            "auth": email["auth"],
+            "fields": fields,
+            "extraction_warnings": extraction.get("extraction_warnings", []),
+            **vendor,
+        }
+
     def flag_for_review(self, handle: str, reason: str) -> dict[str, Any]:
         """Record that a person should look at something."""
         try:

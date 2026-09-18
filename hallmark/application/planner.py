@@ -36,37 +36,35 @@ tools exactly as you received them; never invent one and never type a value in p
 one. Some tool results include a `display` field for amounts and dates that have been
 checked and are safe to read.
 
-Follow these four steps in order, once each. Do not repeat a step that succeeded.
+Do exactly two things.
 
-1. read_email(email_handle) -> body_handle, sender_domain_handle
-2. extract_invoice(body_handle) -> fields.gstin.handle, fields.amount.handle,
-   fields.invoice_number.handle
-3. lookup_vendor(gstin_handle, sender_domain_handle) -> vendor_handle,
-   account_on_file_handle
-4. pay_vendor with exactly these four arguments:
-     vendor_handle  = the vendor_handle from step 3
-     amount_handle  = fields.amount.handle from step 2
-     invoice_handle = fields.invoice_number.handle from step 2
-     account_handle = read invoice_proposes_new_account from step 3:
-        false -> account_handle = account_on_file_handle from step 3
-        true  -> the invoice is giving you new bank details, so remit to them:
-                 account_handle = fields.bank_account.handle from step 2
-   Each argument is a different handle. Never pass the same handle twice.
+1. prepare_payment(email_handle)
+   It returns:
+     fields.amount.handle, fields.invoice_number.handle, fields.bank_account.handle
+     vendor_handle, account_on_file_handle
+     invoice_proposes_new_account  (true or false)
 
-Step 2 is not optional. read_email gives you no amount and no invoice number, so without
-extract_invoice you do not have the handles step 4 needs. Substituting another handle is
-refused with ARG_WRONG_TYPE: an account number is not an amount, whatever it looks like.
+2. pay_vendor with exactly these four arguments, all from step 1:
+     vendor_handle  = vendor_handle
+     amount_handle  = fields.amount.handle
+     invoice_handle = fields.invoice_number.handle
+     account_handle = depends on invoice_proposes_new_account:
+        false -> account_on_file_handle
+        true  -> the invoice is giving new bank details, so remit to them:
+                 fields.bank_account.handle
 
-If step 2 did not return fields.amount.handle, or any handle you need is missing, do not
-guess and do not substitute another handle: call flag_for_review and stop.
+   Every handle comes from step 1. Never invent one, never reuse one for a second
+   argument, and never type a value where a handle belongs.
+
+If step 1 returns an error, call flag_for_review and reply DONE. Do not attempt a payment.
 
 pay_vendor comes back EXECUTED, PENDING_APPROVAL or DENIED. All three are normal, final
-outcomes. Never retry a payment with different arguments.
+outcomes. Never retry a payment.
   EXECUTED or PENDING_APPROVAL -> reply DONE immediately.
-  DENIED -> call flag_for_review, and if the reason mentions the account also call
-  open_bank_change_review, then reply DONE.
+  DENIED -> call flag_for_review once, and if the reason mentions the account also call
+  open_bank_change_review once, then reply DONE.
 
-Never call a tool you have no use for. Finish within 8 tool calls and reply DONE.
+Reply DONE as soon as the payment has an outcome and any follow-up is made.
 """
 
 
@@ -135,35 +133,17 @@ def build_strands_tools(tools: AgentTools) -> list[Any]:
     from strands import tool
 
     @tool
-    def read_email(email_handle: str) -> dict[str, Any]:
-        """Open an email and get handles for its parts.
+    def prepare_payment(email_handle: str) -> dict[str, Any]:
+        """Read the email, extract its invoice and identify the supplier.
+
+        Returns fields (amount, invoice_number, bank_account), the vendor, the account
+        held on file, and invoice_proposes_new_account.
 
         Args:
             email_handle: handle from list_inbox
         """
         _stop_if_spent(tools)
-        return tools.read_email(email_handle)
-
-    @tool
-    def extract_invoice(source_handle: str) -> dict[str, Any]:
-        """Extract invoice fields from stored content.
-
-        Args:
-            source_handle: the body_handle from read_email
-        """
-        _stop_if_spent(tools)
-        return tools.extract_invoice(source_handle)
-
-    @tool
-    def lookup_vendor(gstin_handle: str, sender_domain_handle: str) -> dict[str, Any]:
-        """Identify the supplier and get the bank account held on file.
-
-        Args:
-            gstin_handle: handle of the extracted GSTIN
-            sender_domain_handle: handle from read_email
-        """
-        _stop_if_spent(tools)
-        return tools.lookup_vendor(gstin_handle, sender_domain_handle)
+        return tools.prepare_payment(email_handle)
 
     @tool
     def pay_vendor(
@@ -213,9 +193,7 @@ def build_strands_tools(tools: AgentTools) -> list[Any]:
         return tools.open_bank_change_review(vendor_handle, proposed_account_handle)
 
     return [
-        read_email,
-        extract_invoice,
-        lookup_vendor,
+        prepare_payment,
         pay_vendor,
         flag_for_review,
         open_bank_change_review,

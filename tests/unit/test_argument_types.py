@@ -175,3 +175,55 @@ def test_an_invoice_using_the_account_on_file_is_not_a_bank_change() -> None:
     vendor = tools.lookup_vendor(fields["gstin"]["handle"], email["sender_domain_handle"])
 
     assert vendor["invoice_proposes_new_account"] is False
+
+
+def test_prepare_payment_returns_everything_a_payment_needs() -> None:
+    """One call instead of three, because a small model skipped one of the three.
+
+    A run went read_email, flag_for_review, extract_invoice, pay_vendor -- never looking
+    the vendor up -- then invented a handle for the account and was refused for naming one
+    that does not exist. No wording of the procedure fixed that, so the procedure stopped
+    being something the model has to remember.
+    """
+    tools = build_tools_for_test()
+    tools._reader = RegexInvoiceReader()
+    handle = next(
+        entry["email_handle"]
+        for entry in tools.list_inbox()["emails"]
+        if tools._email_by_handle[entry["email_handle"]] == BODY_EMAIL
+    )
+
+    prepared = tools.prepare_payment(handle)
+
+    for needed in ("vendor_handle", "account_on_file_handle", "invoice_proposes_new_account"):
+        assert needed in prepared, needed
+    for field in ("amount", "invoice_number", "bank_account"):
+        assert field in prepared["fields"], field
+
+
+def test_prepare_payment_reports_an_unreadable_email_rather_than_half_a_result() -> None:
+    """Half a result is what lets a planner carry on and invent the missing part."""
+    tools = build_tools_for_test()
+    tools._reader = RegexInvoiceReader()
+
+    prepared = tools.prepare_payment("h_does_not_exist")
+
+    assert "error" in prepared
+    assert "vendor_handle" not in prepared
+
+
+def test_the_model_is_offered_only_the_composed_tool() -> None:
+    """The three separate calls still exist for the scripted planner and these tests.
+
+    They are no longer on the model's surface, because an order that cannot be expressed
+    cannot be got wrong.
+    """
+    from hallmark.application.planner import build_strands_tools
+
+    tools = build_tools_for_test()
+    names = {
+        getattr(t, "tool_name", getattr(t, "__name__", "")) for t in build_strands_tools(tools)
+    }
+
+    assert "prepare_payment" in names
+    assert {"read_email", "extract_invoice", "lookup_vendor"} & names == set()
