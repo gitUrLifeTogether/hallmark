@@ -12,6 +12,7 @@ cannot move money to the wrong account.
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -19,10 +20,14 @@ from hallmark.application.agent_tools import AgentTools
 
 MAX_TOOL_CALLS_PER_EMAIL = 8
 
-EPISODE_DEADLINE_SECONDS = 600.0
-"""Ten minutes. The worst episode actually measured on the development machine took 3311
-seconds inside a legitimate number of tool calls, so a call budget alone does not bound
-this. A run that exceeds the deadline is reported as timed out rather than left to hang."""
+EPISODE_DEADLINE_SECONDS = float(os.environ.get("EPISODE_DEADLINE_SECONDS", 1800))
+"""Thirty minutes by default, and configurable because the right value is a property of
+the machine rather than of the code.
+
+The point of the deadline is to fail visibly instead of hanging, not to make a run fast: a
+slow episode that reaches the right verdict is worth more than a quick timeout. The worst
+measured here took 3311 seconds inside a legitimate number of tool calls, so a call budget
+alone does not bound this."""
 
 SYSTEM_PROMPT = """You are an accounts-payable assistant processing one supplier email.
 

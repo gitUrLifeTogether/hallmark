@@ -175,7 +175,7 @@ def summarise(
     return {"verdict": "NO_PAYMENT_ATTEMPTED", "policies": [], "paid": paid}
 
 
-WATCHDOG_GRACE_SECONDS = 120.0
+WATCHDOG_GRACE_SECONDS = float(os.environ.get("WATCHDOG_GRACE_SECONDS", 300))
 """Headroom past the planner's own deadline, for a model call already in flight when it
 expires. The planner stops cooperatively at its next tool call; this bounds the case where
 there is no next tool call because the current one never returns."""
