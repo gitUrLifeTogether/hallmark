@@ -40,9 +40,14 @@ Follow these four steps in order, once each. Do not repeat a step that succeeded
    account_on_file_handle
 4. pay_vendor with exactly these four arguments:
      vendor_handle  = the vendor_handle from step 3
-     account_handle = the account_on_file_handle from step 3, always
      amount_handle  = fields.amount.handle from step 2
      invoice_handle = fields.invoice_number.handle from step 2
+     account_handle = choose it by comparing the two masked displays:
+        if fields.bank_account.display equals account_on_file_display,
+           the invoice uses the account already on file
+           -> account_handle = account_on_file_handle from step 3
+        if they differ, the invoice is giving you new bank details
+           -> account_handle = fields.bank_account.handle from step 2
    Each argument is a different handle. Never pass the same handle twice.
 
 If step 2 did not return fields.amount.handle, or any handle you need is missing, do not

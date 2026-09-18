@@ -5,8 +5,9 @@
  * point recorded, because a console that computed its own would eventually disagree with
  * the system it is meant to be reporting on.
  *
- * The waiting state is deliberately explicit. A real episode on a local model takes
- * minutes, and a screen that merely sits there looks broken.
+ * The waiting state shows the steps as they happen and no clock. A duration on screen
+ * would contradict the footage once it is sped up in editing, and the activity feed
+ * already makes it obvious the run is progressing.
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -99,6 +100,11 @@ const VERDICT_COPY: Record<
     tone: "var(--pending)",
     detail: "Held for a person. A policy required human approval for this one.",
   },
+  DENIED: {
+    label: "BLOCKED",
+    tone: "var(--deny)",
+    detail: "Refused. The payment did not happen and the ledger is unchanged.",
+  },
   HARD_DENIED: {
     label: "BLOCKED",
     tone: "var(--deny)",
@@ -130,19 +136,11 @@ const VERDICT_COPY: Record<
   },
 };
 
-function elapsed(since: number | null): string {
-  if (since === null) return "";
-  const seconds = Math.floor((Date.now() - since) / 1000);
-  return `${Math.floor(seconds / 60)}m ${String(seconds % 60).padStart(2, "0")}s`;
-}
-
 export function LiveRun() {
   const [form, setForm] = useState<Sample>(SAMPLES[0]!.value);
   const [phase, setPhase] = useState<Phase>("idle");
   const [runId, setRunId] = useState<string | undefined>(undefined);
   const [message, setMessage] = useState<string>("");
-  const [startedAt, setStartedAt] = useState<number | null>(null);
-  const [, forceTick] = useState(0);
   const [verdict, setVerdict] = useState<{
     verdict?: string;
     reasonCode?: string;
@@ -151,13 +149,6 @@ export function LiveRun() {
 
   const { events, state, clear } = useLiveEvents(GATEWAY, runId);
   const pollRef = useRef<number | undefined>(undefined);
-
-  // The clock only needs to move while something is running.
-  useEffect(() => {
-    if (phase !== "running") return;
-    const timer = window.setInterval(() => forceTick((n) => n + 1), 1000);
-    return () => window.clearInterval(timer);
-  }, [phase]);
 
   const completion = useMemo(
     () => events.find((event) => event.type === "RunCompleted"),
@@ -199,7 +190,6 @@ export function LiveRun() {
       if (!isSignedIn()) await login("ananya");
       const accepted = await submitRun(form);
       setRunId(accepted.runId);
-      setStartedAt(Date.now());
       setPhase("running");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "submission failed");
@@ -353,7 +343,7 @@ export function LiveRun() {
                 background: "var(--surface-2)",
               }}
             >
-              <strong>Processing — {elapsed(startedAt)}</strong>
+              <strong>Processing</strong>
               <p
                 style={{
                   margin: "8px 0 0",
@@ -361,9 +351,8 @@ export function LiveRun() {
                   maxWidth: "62ch",
                 }}
               >
-                This runs a real language model on your own machine, so it takes
-                several minutes — often four to seven. Nothing is broken. Steps
-                appear below as they happen.
+                A real language model is planning this on your own machine. Each
+                step appears below as it happens.
               </p>
             </div>
           )}

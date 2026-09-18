@@ -369,19 +369,21 @@ class AgentTools:
         )
 
         account = self._store(
-            Labeled(
-                handle=self._ids.new_handle(),
-                value=vendor.account_number,
-                vtype=ValueType.ACCOUNT_NUMBER,
-                sources=frozenset({Source.COMPANY_DB}),
-                confidentiality=Confidentiality.CONFIDENTIAL,
-                run_id=self.run.run_id,
-                op="db_lookup",
-                created_at=self._clock.now_iso(),
+            try_declassify(
+                Labeled(
+                    handle=self._ids.new_handle(),
+                    value=vendor.account_number,
+                    vtype=ValueType.ACCOUNT_NUMBER,
+                    sources=frozenset({Source.COMPANY_DB}),
+                    confidentiality=Confidentiality.CONFIDENTIAL,
+                    run_id=self.run.run_id,
+                    op="db_lookup",
+                    created_at=self._clock.now_iso(),
+                )
             )
         )
 
-        return {
+        result: dict[str, Any] = {
             "found": True,
             "vendor_handle": vendor_value.handle,
             "vendor_id": vendor.vendor_id,
@@ -389,6 +391,13 @@ class AgentTools:
             "domain_matches": str(domain.value) == vendor.domain.lower(),
             "account_on_file_handle": account.handle,
         }
+        # Masked, so the planner can tell whether an invoice proposes a different account
+        # without ever seeing either number. Without it the planner cannot notice a bank
+        # change at all, and would pay every invoice from the record -- which looks like
+        # perfect behaviour while meaning the account rule is never exercised.
+        if account.declassified and account.display is not None:
+            result["account_on_file_display"] = account.display
+        return result
 
     def flag_for_review(self, handle: str, reason: str) -> dict[str, Any]:
         """Record that a person should look at something."""
