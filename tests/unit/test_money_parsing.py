@@ -59,3 +59,35 @@ def test_a_boolean_is_not_an_amount() -> None:
 def test_an_amount_beyond_the_permitted_range_is_rejected() -> None:
     with pytest.raises(DeclassificationRejected):
         parse_money_to_paise("999999999999")
+
+
+# --- field-in-source verification, for amounts the reader decorates -----------
+
+from hallmark.application.reader import InvoiceExtraction, verify_fields_in_source  # noqa: E402
+
+SOURCE = "Invoice number: INV-SM-9902\nAmount: 45000.00\nBank account: 911020033456"
+
+
+def verified(amount: str) -> dict[str, str]:
+    return verify_fields_in_source(InvoiceExtraction(amount=amount), SOURCE).fields
+
+
+@pytest.mark.parametrize(
+    "written", ["45000.00", "45,000.00", "$45000.00", "Rs 45000.00", "INR 45,000.00", "₹45000.00"]
+)
+def test_an_amount_the_reader_decorated_still_verifies(written: str) -> None:
+    """The reader returned "$45000.00" for a document reading "Amount: 45000.00".
+
+    The digits were right and the symbol was invented. Dropping the field cost the planner
+    its amount entirely, and everything downstream failed for want of it: a legitimate
+    invoice came back refused, which is the opposite of what the system had decided.
+
+    Verification exists to stop invented values, not invented formatting.
+    """
+    assert verified(written).get("amount") == written
+
+
+@pytest.mark.parametrize("written", ["99999.00", "450000.00", "12345"])
+def test_an_amount_that_is_not_in_the_document_is_still_dropped(written: str) -> None:
+    """The guarantee this check exists for, unchanged."""
+    assert "amount" not in verified(written)

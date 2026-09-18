@@ -26,7 +26,13 @@ from hallmark.domain.labels import Source, ValueType
 #: Characters used to hide or disguise text: zero-width, BOM, and the Unicode tag block.
 _INVISIBLE = re.compile(r"[​-‏⁠-⁯﻿\U000e0000-\U000e007f]")
 _WHITESPACE = re.compile(r"\s+")
-_SEPARATORS = re.compile(r"[,\s₹]")
+#: Grouping separators and currency marks. A currency mark is formatting, not value: the
+#: reader returned "$45000.00" for a document that says "Amount: 45000.00", the digits were
+#: right and the symbol was invented, and dropping the field cost the planner its amount
+#: entirely. Verification exists to stop invented *values*, so the digits still have to
+#: appear in the source -- only the decoration around them is forgiven.
+_SEPARATORS = re.compile(r"[,\s₹$£€¥]")
+_CURRENCY_WORDS = re.compile(r"\b(?:rs|inr|usd|eur|gbp|rupees?)\b\.?")
 
 
 def normalize(text: str) -> str:
@@ -39,7 +45,8 @@ def normalize(text: str) -> str:
 
 def normalize_number(text: str) -> str:
     """Strip grouping separators and currency marks so 4,62,000 matches 462000."""
-    return _SEPARATORS.sub("", normalize(text))
+    folded = _CURRENCY_WORDS.sub("", normalize(text))
+    return _SEPARATORS.sub("", folded)
 
 
 @dataclass
