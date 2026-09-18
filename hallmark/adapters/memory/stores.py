@@ -75,6 +75,15 @@ class FixedClock:
         return self._now
 
 
+class SystemClock:
+    """Real time, for a live run. Tests use FixedClock so their output stays comparable."""
+
+    def now_iso(self) -> str:
+        from datetime import UTC, datetime
+
+        return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
 class InMemoryVendorRepository:
     def __init__(self, vendors: list[Vendor]) -> None:
         self._vendors = list(vendors)

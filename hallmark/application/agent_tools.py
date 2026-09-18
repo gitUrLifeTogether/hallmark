@@ -11,6 +11,7 @@ without a model. The Strands wrappers in `planner.py` are thin adapters over the
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Any
 
@@ -23,6 +24,8 @@ from hallmark.domain.tools import FlagReason, ToolSpec
 from hallmark.domain.values import Labeled, derive
 from hallmark.ports.repositories import InboxRepository, VendorRepository
 from hallmark.ports.stores import Clock, IdGenerator, LineageStore, ValueStore
+
+logger = logging.getLogger(__name__)
 
 #: Which extracted field becomes which kind of value.
 EXTRACTED_FIELD_TYPES: dict[str, ValueType] = {
@@ -97,6 +100,7 @@ class AgentTools:
         ids: IdGenerator,
         clock: Clock,
         reader: Any,
+        events: Any | None = None,
     ) -> None:
         self.run = run
         self._pep = pep
@@ -107,8 +111,14 @@ class AgentTools:
         self._ids = ids
         self._clock = clock
         self._reader = reader
+        self._events = events
         self._email_by_handle: dict[str, str] = {}
         self.flags: list[tuple[str, str]] = []
+        #: Every consequential attempt and how it ended, including the ones refused before
+        #: the policy engine was reached. Those produce no decision record, so a summary
+        #: built only from decisions reports them as if nothing was attempted -- which is
+        #: the same fault that once made unreachable bench scenarios look like defences.
+        self.attempts: list[dict[str, Any]] = []
         self.reviews: list[str] = []
         self.call_budget: int | None = None
         self.calls_made = 0
@@ -118,13 +128,40 @@ class AgentTools:
         self.call_budget = budget
         self.calls_made = 0
 
-    def _spend_call(self) -> bool:
+    def _announce(self, tool: str) -> None:
+        """Tell the console a tool ran. Telemetry only, and never allowed to fail a call.
+
+        Only the tool name travels. Arguments are handles and could be resolved by a
+        careless consumer, and the whole point of a handle is that it is not the content.
+        """
+        if self._events is None:
+            return
+        try:
+            from hallmark.ports.events import DomainEvent, EventType
+
+            self._events.publish(
+                DomainEvent(
+                    EventType.TOOL_CALLED,
+                    self.run.run_id,
+                    self._clock.now_iso(),
+                    {"tool": tool},
+                )
+            )
+        except Exception:
+            # Swallowed on purpose, and the same rule the enforcement point follows:
+            # announcing a tool call is telemetry, and telemetry must never be able to
+            # fail the call it is describing.
+            logger.warning("tool announcement failed", extra={"tool": tool})
+
+    def _spend_call(self, tool: str = "") -> bool:
         """Consume one unit of budget, returning False once it is exhausted.
 
         A small model that loses the thread will otherwise call tools forever. Bounding
         the work in code rather than in the prompt means a confused planner stalls
         instead of running up an unbounded bill, and the run still terminates.
         """
+        if tool:
+            self._announce(tool)
         if self.call_budget is None:
             return True
         self.calls_made += 1
@@ -194,7 +231,7 @@ class AgentTools:
 
     def read_email(self, email_handle: str) -> dict[str, Any]:
         """Open an email. The body stays in the store; only handles come back."""
-        if not self._spend_call():
+        if not self._spend_call("read_email"):
             return {"error": "CALL_BUDGET_EXHAUSTED"}
 
         email_id = self._email_by_handle.get(email_handle)
@@ -228,7 +265,7 @@ class AgentTools:
 
     def extract_invoice(self, source_handle: str) -> dict[str, Any]:
         """Run the quarantined reader over stored content and label what survives."""
-        if not self._spend_call():
+        if not self._spend_call("extract_invoice"):
             return {"error": "CALL_BUDGET_EXHAUSTED"}
 
         body = self._values.get(self.run.run_id, source_handle)
@@ -274,7 +311,7 @@ class AgentTools:
 
     def lookup_vendor(self, gstin_handle: str, sender_domain_handle: str) -> dict[str, Any]:
         """Find the vendor by GSTIN and report whether the sender really matches it."""
-        if not self._spend_call():
+        if not self._spend_call("lookup_vendor"):
             return {"error": "CALL_BUDGET_EXHAUSTED"}
 
         gstin = self._values.get(self.run.run_id, gstin_handle)
@@ -375,7 +412,7 @@ class AgentTools:
         vendor_match_verified: bool = False,
     ) -> dict[str, Any]:
         """Attempt a payment. The enforcement point decides what actually happens."""
-        if not self._spend_call():
+        if not self._spend_call("pay_vendor"):
             return {
                 "status": "DENIED",
                 "reason_code": "CALL_BUDGET_EXHAUSTED",
@@ -401,13 +438,14 @@ class AgentTools:
             payload["approval_id"] = result.approval_id
         if result.suggested_next:
             payload["suggested_next"] = list(result.suggested_next)
+        self.attempts.append({"tool": "pay_vendor", **payload})
         return payload
 
     def send_email(
         self, recipient_handle: str, template_id: str, attachment_handles: list[str] | None = None
     ) -> dict[str, Any]:
         """Attempt to send a templated email."""
-        if not self._spend_call():
+        if not self._spend_call("send_email"):
             return {
                 "status": "DENIED",
                 "reason_code": "CALL_BUDGET_EXHAUSTED",

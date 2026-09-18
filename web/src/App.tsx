@@ -3,14 +3,16 @@
  * Four views, in the order a person actually uses them: what the run did, why one decision
  * went the way it did, the message behind it, and what is waiting on a human.
  *
- * Everything shown here comes from a recorded run. The console renders decisions and
- * provenance; it never re-derives them, because a second implementation of the rules would
- * eventually disagree with the one that matters.
+ * Live run and Approvals talk to the deployed API; the rest render a recorded run. In
+ * both cases the console reports decisions and provenance and never re-derives them,
+ * because a second implementation of the rules would eventually disagree with the one
+ * that matters.
  */
 
 import { useEffect, useState } from "react";
 import { DecisionCard } from "./components/DecisionCard";
 import { Approvals } from "./features/Approvals";
+import { LiveRun } from "./features/LiveRun";
 import { Bench } from "./features/Bench";
 import { SplitReplay } from "./features/SplitReplay";
 import { LineageGraph } from "./components/LineageGraph";
@@ -26,6 +28,7 @@ import {
 import { formatPaise } from "./lib/types";
 
 type View =
+  | "live"
   | "run"
   | "replay"
   | "bench"
@@ -35,6 +38,7 @@ type View =
   | "policies";
 
 const TABS: { id: View; label: string }[] = [
+  { id: "live", label: "Live run" },
   { id: "run", label: "Run" },
   { id: "replay", label: "Split replay" },
   { id: "bench", label: "Bench" },
@@ -147,6 +151,8 @@ export default function App() {
           </button>
         ))}
       </nav>
+
+      {view === "live" && <LiveRun />}
 
       {view === "run" && (
         <section style={{ display: "grid", gap: 20 }}>

@@ -15,6 +15,7 @@ from typing import Any, Protocol
 class EventType(StrEnum):
     """The fixed vocabulary of things worth telling the console about."""
 
+    RUN_REQUESTED = "RunRequested"
     RUN_STARTED = "RunStarted"
     MANDATE_DRAFTED = "MandateDrafted"
     MANDATE_CONFIRMED = "MandateConfirmed"

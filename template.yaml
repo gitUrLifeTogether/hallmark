@@ -210,6 +210,38 @@ Resources:
         - Arn: !GetAtt ConsoleEventsQueue.Arn
           Id: console-events
 
+  # Run requests go to their own queue as well as to the console. The console queue is
+  # drained by the gateway, which deletes what it forwards, so a worker sharing it would
+  # race the browser for every message and usually lose.
+  RunRequestsQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub "hallmark-${Stage}-run-requests"
+      VisibilityTimeout: 1800
+
+  RunRequestsRule:
+    Type: AWS::Events::Rule
+    Properties:
+      EventBusName: !Ref HallmarkBus
+      EventPattern:
+        source: ["hallmark"]
+        detail-type: ["RunRequested"]
+      Targets:
+        - Arn: !GetAtt RunRequestsQueue.Arn
+          Id: run-requests
+
+  RunRequestsQueuePolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues: [!Ref RunRequestsQueue]
+      PolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: events.amazonaws.com
+            Action: "sqs:SendMessage"
+            Resource: !GetAtt RunRequestsQueue.Arn
+
   ConsoleEventsQueuePolicy:
     Type: AWS::SQS::QueuePolicy
     Properties:
@@ -253,6 +285,8 @@ Resources:
             TableName: !Ref DecisionsTable
         - DynamoDBReadPolicy:
             TableName: !Ref VendorTable
+        - EventBridgePutEventsPolicy:
+            EventBusName: !Ref HallmarkBus
       Events:
         Health:
           Type: Api
@@ -278,6 +312,18 @@ Resources:
             RestApiId: !Ref HallmarkApi
             Path: /approvals/{approvalId}/decision
             Method: POST
+        SubmitRun:
+          Type: Api
+          Properties:
+            RestApiId: !Ref HallmarkApi
+            Path: /runs
+            Method: POST
+        GetRun:
+          Type: Api
+          Properties:
+            RestApiId: !Ref HallmarkApi
+            Path: /runs/{runId}
+            Method: GET
 
 Outputs:
   ApiId:
@@ -289,5 +335,8 @@ Outputs:
   QueueUrl:
     Description: Queue the console gateway drains
     Value: !Ref ConsoleEventsQueue
+  RunRequestsQueueUrl:
+    Description: Queue the host run worker drains
+    Value: !Ref RunRequestsQueue
   ArtifactsBucket:
     Value: !Ref ArtifactsBucket

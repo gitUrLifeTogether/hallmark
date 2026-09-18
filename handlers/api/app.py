@@ -15,10 +15,14 @@ import os
 from collections.abc import Callable
 from datetime import UTC
 from typing import Any
+from uuid import uuid4
 
 from hallmark.adapters.auth.tokens import Principal, issue_token, verify_token
 from hallmark.adapters.dynamodb.approvals import DynamoApprovalStore
+from hallmark.adapters.dynamodb.submissions import DynamoSubmissionStore
+from hallmark.adapters.eventbridge.publisher import EventBridgePublisher
 from hallmark.application.approvals import ApprovalService
+from hallmark.application.submissions import parse_submission
 from hallmark.domain.errors import (
     AuthenticationError,
     Conflict,
@@ -26,6 +30,7 @@ from hallmark.domain.errors import (
     NotFound,
     ValidationError,
 )
+from hallmark.ports.events import DomainEvent, EventType
 
 STATUS_FOR_ERROR: dict[type[HallmarkError], int] = {
     AuthenticationError: 401,
@@ -140,6 +145,41 @@ def post_approval_decision(event: dict[str, Any]) -> dict[str, Any]:
     return _response(200, result)
 
 
+def _submission_store() -> DynamoSubmissionStore:
+    return DynamoSubmissionStore(os.environ["RUNS_TABLE"], os.environ.get("TENANT_ID", "kestrel"))
+
+
+def post_run(event: dict[str, Any]) -> dict[str, Any]:
+    """Accept an email for a live run and return immediately.
+
+    The work is not done here. A real model episode takes minutes on a small host, which
+    is far longer than any API request should live, so this endpoint only records the
+    submission and announces it. A worker picks it up and the browser follows on the
+    event stream.
+    """
+    _principal(event)
+    body = json.loads(event.get("body") or "{}")
+
+    run_id = f"run_{uuid4().hex[:12]}"
+    submission = parse_submission(run_id, body)
+
+    _submission_store().put(submission, "QUEUED")
+
+    # Only the id travels on the bus. The submitted text is attacker-controlled by design,
+    # and an event is fanned out to every connected browser.
+    EventBridgePublisher(os.environ["EVENT_BUS"]).publish(
+        DomainEvent(EventType.RUN_REQUESTED, run_id, Clock().now_iso(), {"status": "QUEUED"})
+    )
+    return _response(202, {"runId": run_id, "status": "QUEUED"})
+
+
+def get_run(event: dict[str, Any]) -> dict[str, Any]:
+    """Status for a run, for a browser that missed events or reconnected."""
+    _principal(event)
+    run_id = (event.get("pathParameters") or {}).get("runId", "")
+    return _response(200, _submission_store().status_of(run_id))
+
+
 def get_health(event: dict[str, Any]) -> dict[str, Any]:
     return _response(
         200,
@@ -157,6 +197,8 @@ ROUTES: dict[tuple[str, str], Callable[[dict[str, Any]], dict[str, Any]]] = {
     ("POST", "/auth/login"): post_login,
     ("GET", "/approvals"): get_approvals,
     ("POST", "/approvals/{approvalId}/decision"): post_approval_decision,
+    ("POST", "/runs"): post_run,
+    ("GET", "/runs/{runId}"): get_run,
 }
 
 
