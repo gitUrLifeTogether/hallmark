@@ -197,6 +197,17 @@ def build_strands_tools(tools: AgentTools) -> list[Any]:
     ]
 
 
+MODEL_CALL_TIMEOUT_SECONDS = float(os.environ.get("MODEL_CALL_TIMEOUT_SECONDS", 300))
+"""How long any single model call may take before it is abandoned.
+
+This is what stops an abandoned episode from outliving the run that gave up on it. A
+timed-out episode cannot be killed -- Python offers no way to stop a thread -- so it is
+left to finish, and without a per-call timeout it keeps issuing requests against the same
+model server the next run depends on. Two such strays made a one-word completion take five
+minutes instead of four seconds, which looked exactly like a slow machine.
+"""
+
+
 def build_planner_model(host: str, model_id: str, keep_alive: str = "10m") -> Any:
     """Create the Ollama-backed planner model.
 
@@ -210,6 +221,7 @@ def build_planner_model(host: str, model_id: str, keep_alive: str = "10m") -> An
         model_id=model_id,
         temperature=0,
         keep_alive=keep_alive,
+        ollama_client_args={"timeout": MODEL_CALL_TIMEOUT_SECONDS},
     )
 
 
