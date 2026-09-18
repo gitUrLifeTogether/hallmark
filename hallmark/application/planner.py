@@ -19,6 +19,11 @@ from hallmark.application.agent_tools import AgentTools
 
 MAX_TOOL_CALLS_PER_EMAIL = 8
 
+EPISODE_DEADLINE_SECONDS = 600.0
+"""Ten minutes. The worst episode actually measured on the development machine took 3311
+seconds inside a legitimate number of tool calls, so a call budget alone does not bound
+this. A run that exceeds the deadline is reported as timed out rather than left to hang."""
+
 SYSTEM_PROMPT = """You are an accounts-payable assistant processing one supplier email.
 
 You never see email text. You work with opaque handles like h_000123. Pass handles to
@@ -26,18 +31,30 @@ tools exactly as you received them; never invent one and never type a value in p
 one. Some tool results include a `display` field for amounts and dates that have been
 checked and are safe to read.
 
-Procedure for the email you are given:
-1. read_email(email_handle) to get body_handle and sender_domain_handle.
-2. extract_invoice(body_handle) to get the invoice fields.
-3. lookup_vendor(gstin_handle, sender_domain_handle) to identify the supplier.
-4. check the result, then pay_vendor(...) using the vendor's account_on_file_handle.
+Follow these four steps in order, once each. Do not repeat a step that succeeded.
 
-pay_vendor can come back EXECUTED, PENDING_APPROVAL or DENIED. All three are normal
-outcomes, not errors, and you should not retry a denied payment with different arguments.
-If it is DENIED, call flag_for_review with a reason, and if the denial mentions the
-account, also call open_bank_change_review so a person can check it.
+1. read_email(email_handle) -> body_handle, sender_domain_handle
+2. extract_invoice(body_handle) -> fields.gstin.handle, fields.amount.handle,
+   fields.invoice_number.handle
+3. lookup_vendor(gstin_handle, sender_domain_handle) -> vendor_handle,
+   account_on_file_handle
+4. pay_vendor with exactly these four arguments:
+     vendor_handle  = the vendor_handle from step 3
+     account_handle = the account_on_file_handle from step 3, always
+     amount_handle  = fields.amount.handle from step 2
+     invoice_handle = fields.invoice_number.handle from step 2
+   Each argument is a different handle. Never pass the same handle twice.
 
-Finish in at most 8 tool calls. When you are done with the email, reply DONE.
+If step 2 did not return fields.amount.handle, or any handle you need is missing, do not
+guess and do not substitute another handle: call flag_for_review and stop.
+
+pay_vendor comes back EXECUTED, PENDING_APPROVAL or DENIED. All three are normal, final
+outcomes. Never retry a payment with different arguments.
+  EXECUTED or PENDING_APPROVAL -> reply DONE immediately.
+  DENIED -> call flag_for_review, and if the reason mentions the account also call
+  open_bank_change_review, then reply DONE.
+
+Never call a tool you have no use for. Finish within 8 tool calls and reply DONE.
 """
 
 
@@ -53,6 +70,7 @@ class EpisodeResult:
     error: str | None = None
     calls_made: int = 0
     budget_exhausted: bool = False
+    timed_out: bool = False
 
 
 class RecordingModelWrapper:
@@ -193,13 +211,16 @@ class ModelPlanner:
         self._model = model
 
     def run_episode(
-        self, email_handle: str, budget: int = MAX_TOOL_CALLS_PER_EMAIL
+        self,
+        email_handle: str,
+        budget: int = MAX_TOOL_CALLS_PER_EMAIL,
+        deadline_seconds: float | None = EPISODE_DEADLINE_SECONDS,
     ) -> EpisodeResult:
-        """Hand one email to the model and let it work, within a fixed call budget."""
+        """Hand one email to the model and let it work, within a budget and a deadline."""
         from strands import Agent
 
         result = EpisodeResult(email_handle=email_handle)
-        self._tools.start_episode(budget)
+        self._tools.start_episode(budget, deadline_seconds)
 
         agent = Agent(
             model=self._model,
@@ -214,4 +235,5 @@ class ModelPlanner:
 
         result.calls_made = self._tools.calls_made
         result.budget_exhausted = self._tools.calls_made > budget
+        result.timed_out = self._tools.out_of_time()
         return result

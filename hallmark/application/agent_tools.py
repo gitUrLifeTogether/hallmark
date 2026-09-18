@@ -12,12 +12,13 @@ without a model. The Strands wrappers in `planner.py` are thin adapters over the
 from __future__ import annotations
 
 import logging
+import time
 from dataclasses import dataclass
 from typing import Any
 
 from hallmark.application.pep import PolicyEnforcementPoint, RunContext
 from hallmark.application.reader import verify_fields_in_source
-from hallmark.domain.declassify import try_declassify
+from hallmark.domain.declassify import parse_money_to_paise, try_declassify
 from hallmark.domain.labels import Confidentiality, Source, ValueType
 from hallmark.domain.lineage import EdgeKind, LineageEdge
 from hallmark.domain.tools import FlagReason, ToolSpec
@@ -122,11 +123,21 @@ class AgentTools:
         self.reviews: list[str] = []
         self.call_budget: int | None = None
         self.calls_made = 0
+        self.deadline: float | None = None
 
-    def start_episode(self, budget: int) -> None:
-        """Begin one email's episode with a fresh call budget."""
+    def start_episode(self, budget: int, deadline_seconds: float | None = None) -> None:
+        """Begin one email's episode with a fresh call budget and optional deadline.
+
+        The budget bounds how much a confused model can do; the deadline bounds how long
+        it can take to do it. They are different failures: one episode spent 55 minutes
+        inside eight legitimate calls, which no call budget would have caught.
+        """
         self.call_budget = budget
         self.calls_made = 0
+        self.deadline = None if deadline_seconds is None else time.monotonic() + deadline_seconds
+
+    def out_of_time(self) -> bool:
+        return self.deadline is not None and time.monotonic() >= self.deadline
 
     def _announce(self, tool: str) -> None:
         """Tell the console a tool ran. Telemetry only, and never allowed to fail a call.
@@ -162,6 +173,11 @@ class AgentTools:
         """
         if tool:
             self._announce(tool)
+        if self.out_of_time():
+            # Refusing here stops the loop cooperatively at the next tool call, which is
+            # the only place this code runs. A model stuck inside one long call is the
+            # caller's problem to bound.
+            return False
         if self.call_budget is None:
             return True
         self.calls_made += 1
@@ -279,14 +295,19 @@ class AgentTools:
 
         verified = verify_fields_in_source(extraction, str(body.value))
         fields: dict[str, Any] = {}
+        warnings: list[str] = list(verified.warnings)
 
         for name, raw in verified.fields.items():
             vtype = EXTRACTED_FIELD_TYPES.get(name, ValueType.FREE_TEXT)
             value: Any = raw
             if vtype is ValueType.MONEY_PAISE:
                 try:
-                    value = int(str(raw).replace(",", "").strip()) * 100
-                except ValueError:
+                    value = parse_money_to_paise(raw)
+                except Exception:
+                    # Dropped, but never silently: a missing amount used to leave the
+                    # planner to put some other handle in its place, and the enforcement
+                    # error that followed said nothing about why.
+                    warnings.append("AMOUNT_UNREADABLE")
                     continue
 
             labeled = try_declassify(
@@ -307,7 +328,7 @@ class AgentTools:
                 entry["display"] = labeled.display
             fields[name] = entry
 
-        return {"fields": fields, "extraction_warnings": sorted(set(verified.warnings))}
+        return {"fields": fields, "extraction_warnings": sorted(set(warnings))}
 
     def lookup_vendor(self, gstin_handle: str, sender_domain_handle: str) -> dict[str, Any]:
         """Find the vendor by GSTIN and report whether the sender really matches it."""

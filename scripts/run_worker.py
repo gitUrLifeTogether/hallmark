@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+import threading
 import time
 from pathlib import Path
 from typing import Any
@@ -42,7 +43,11 @@ from hallmark.adapters.memory.stores import (  # noqa: E402
 from hallmark.adapters.ollama.reader import OllamaReader  # noqa: E402
 from hallmark.application.agent_tools import AgentTools  # noqa: E402
 from hallmark.application.pep import PolicyEnforcementPoint, RunContext  # noqa: E402
-from hallmark.application.planner import ModelPlanner, build_planner_model  # noqa: E402
+from hallmark.application.planner import (  # noqa: E402
+    EPISODE_DEADLINE_SECONDS,
+    ModelPlanner,
+    build_planner_model,
+)
 from hallmark.application.submissions import Submission  # noqa: E402
 from hallmark.config import Settings, local_boto3_client  # noqa: E402
 from hallmark.domain.mandate import Mandate  # noqa: E402
@@ -170,6 +175,32 @@ def summarise(
     return {"verdict": "NO_PAYMENT_ATTEMPTED", "policies": [], "paid": paid}
 
 
+WATCHDOG_GRACE_SECONDS = 120.0
+"""Headroom past the planner's own deadline, for a model call already in flight when it
+expires. The planner stops cooperatively at its next tool call; this bounds the case where
+there is no next tool call because the current one never returns."""
+
+
+def _run_with_watchdog(planner: ModelPlanner, handle: str) -> bool:
+    """Run an episode, giving up on it if it outlives its deadline.
+
+    Returns False if it timed out. The thread is abandoned rather than killed, which
+    Python does not offer: it is a daemon, so it cannot keep the process alive, and the
+    episode's own deadline stops it doing further work.
+    """
+    done = threading.Event()
+
+    def target() -> None:
+        try:
+            planner.run_episode(handle)
+        finally:
+            done.set()
+
+    worker = threading.Thread(target=target, daemon=True, name="episode")
+    worker.start()
+    return done.wait(EPISODE_DEADLINE_SECONDS + WATCHDOG_GRACE_SECONDS)
+
+
 def process(run_id: str, store: Any, events: Any) -> None:
     submission, _status = store.get(run_id)
     store.set_status(run_id, "RUNNING")
@@ -180,9 +211,16 @@ def process(run_id: str, store: Any, events: Any) -> None:
         listing = tools.list_inbox()
         handle = listing["emails"][0]["email_handle"]
         planner = ModelPlanner(tools, build_planner_model(OLLAMA_HOST, MODEL))
-        planner.run_episode(handle)
+
+        timed_out = not _run_with_watchdog(planner, handle)
         summary = summarise(decisions, ledger, run_id, tools.attempts)
-        status = "COMPLETED"
+        if timed_out:
+            # Reported, not hidden. Nothing executed -- work only happens after the
+            # enforcement point permits it, and it is not on this path.
+            summary = {**summary, "timedOut": True}
+            status = "TIMED_OUT"
+        else:
+            status = "COMPLETED"
     except Exception as exc:  # noqa: BLE001
         # A failed episode is a utility failure, never a security one: nothing executes
         # unless the enforcement point permitted it, and it is not on this path.

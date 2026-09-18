@@ -314,6 +314,16 @@ class PolicyEnforcementPoint:
             )
         except Exception:
             # Fail closed: an enforcement bug must never become an executed payment.
+            #
+            # Logged rather than swallowed. The denial is the right outcome, but with no
+            # record of the cause an enforcement error is indistinguishable from a policy
+            # decision when read from the console, and tracing one cost an hour of a model
+            # run to reproduce. The type and message are ours, never the untrusted value.
+            logger.warning(
+                "enforcement error, failing closed",
+                extra={"tool": "pay_vendor", "runId": run.run_id},
+                exc_info=True,
+            )
             self._record(
                 run,
                 "pay_vendor",
@@ -436,6 +446,11 @@ class PolicyEnforcementPoint:
                 )
             )
         except Exception:
+            logger.warning(
+                "enforcement error, failing closed",
+                extra={"tool": "send_email", "runId": run.run_id},
+                exc_info=True,
+            )
             self._record(
                 run,
                 "send_email",

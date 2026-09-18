@@ -61,7 +61,14 @@ def _format_inr(paise: int) -> str:
     return f"₹{digits}.{remainder:02d}"
 
 
-def _declassify_money(value: Any) -> str:
+def parse_money_to_paise(value: Any) -> int:
+    """Turn an extracted amount into integer paise, or reject it.
+
+    The single place money is parsed. An extractor that rolled its own was stricter than
+    this one without meaning to be -- it could not read "462000.00" -- and silently dropped
+    the field, which left the planner to pass some other handle in the amount's place. The
+    resulting enforcement error was correct but unreadable, and it cost an hour to trace.
+    """
     if isinstance(value, bool):
         raise DeclassificationRejected("boolean is not an amount")
     if isinstance(value, int):
@@ -73,7 +80,11 @@ def _declassify_money(value: Any) -> str:
         paise = int(round(float(text.replace(",", "")) * 100))
     if not MIN_PAISE <= paise <= MAX_PAISE:
         raise DeclassificationRejected("amount outside the permitted range")
-    return _format_inr(paise)
+    return paise
+
+
+def _declassify_money(value: Any) -> str:
+    return _format_inr(parse_money_to_paise(value))
 
 
 def _declassify_date(value: Any, today: date | None = None) -> str:
