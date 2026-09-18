@@ -519,3 +519,37 @@ previous deployment and every request failed with a 404 that read as a broken AP
 
 **Consequences:** the file cannot drift from the stack. A comment claiming something is
 automated is worth checking rather than believing.
+
+## ADR-0026: An exhausted budget does not stop a Strands loop
+
+**Context:** the call budget made every further tool call a no-op while the agent loop kept
+running, so a model that never finishes keeps spending inferences. The wrappers were
+changed to raise `EpisodeFinished`, on the strength of a test in which an exception
+appeared to escape `agent()`.
+
+**It does not.** A later run made eleven tool calls against a budget of eight: Strands
+catches a tool's exception and feeds it back to the model. The run ended because the model
+eventually produced a final answer, not because the guard stopped it. The test that seemed
+to show otherwise was polluted by a concurrent run holding the model server, and the
+exception that escaped was a client timeout rather than the one raised in the tool.
+
+**Decision:** keep the guard — it makes the surplus calls cheap and records the intent —
+but the real bound is the episode deadline and the per-call timeout, not the exception.
+Stopping the loop properly needs a framework-level hook rather than an exception.
+
+**Consequences:** a confused model can still cost a few extra inferences. An exception is
+only a control-flow mechanism if the framework in between agrees to let it through, and a
+timing test run next to other work measures the other work.
+
+## ADR-0027: An executed payment outranks a later refusal
+
+**Context:** the run summary reported the last payment decision. A small model that pays an
+invoice and then tries the same one again gets the retry refused as a duplicate, which is
+correct behaviour — but the summary then reported `DENIED` for a run in which the money had
+moved, with `paid: 1` sitting beside it.
+
+**Decision:** if any decision executed, that is the verdict. Otherwise the last refusal is.
+
+**Consequences:** the verdict agrees with the ledger. "Most recent" is not the same as
+"decisive", and for anything that moves money the strongest fact wins rather than the
+latest one.

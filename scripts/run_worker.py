@@ -153,12 +153,17 @@ def summarise(
     recorded = [d for d in decisions.for_run(run_id) if d.tool == "pay_vendor"]
     paid = len(ledger.entries())
 
-    if recorded:
-        last = recorded[-1]
+    # An execution outranks anything after it. A small model often pays and then tries the
+    # same invoice again, and the retry is correctly refused as a duplicate -- reporting
+    # that refusal as the verdict would say BLOCKED about a run where the money moved.
+    executed = [d for d in recorded if str(d.outcome) == "EXECUTED"]
+    decisive = executed[0] if executed else (recorded[-1] if recorded else None)
+
+    if decisive is not None:
         return {
-            "verdict": str(last.outcome),
-            "reasonCode": str(getattr(last, "reason_code", "")),
-            "policies": list(getattr(last, "determining_policies", []) or []),
+            "verdict": str(decisive.outcome),
+            "reasonCode": str(getattr(decisive, "reason_code", "")),
+            "policies": list(getattr(decisive, "determining_policies", []) or []),
             "paid": paid,
         }
 

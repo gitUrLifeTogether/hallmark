@@ -151,3 +151,31 @@ def test_the_last_payment_decision_is_the_one_reported() -> None:
     )
 
     assert summary["verdict"] == "EXECUTED"
+
+
+def test_a_payment_that_executed_outranks_a_later_duplicate_refusal() -> None:
+    """A small model often pays, then tries the same invoice again.
+
+    The retry is correctly refused as a duplicate. Reporting that refusal as the verdict
+    would say BLOCKED about a run in which the money actually moved, which is the most
+    misleading thing this summary could do.
+    """
+    summary = summarise(
+        FakeDecisions([record("EXECUTED"), record("DENIED", ("pay-no-duplicates",))]),
+        FakeLedger(1),
+        "run_1",
+    )
+
+    assert summary["verdict"] == "EXECUTED"
+    assert summary["paid"] == 1
+
+
+def test_a_run_that_never_executed_still_reports_its_last_refusal() -> None:
+    summary = summarise(
+        FakeDecisions([record("DENIED"), record("DENIED", ("pay-account-must-be-master",))]),
+        FakeLedger(),
+        "run_1",
+    )
+
+    assert summary["verdict"] == "DENIED"
+    assert summary["policies"] == ["pay-account-must-be-master"]
