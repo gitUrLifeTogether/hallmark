@@ -55,6 +55,26 @@ Two things differ from what a cloud deployment would use, and both are recorded 
 Shared code is bundled per function instead of shipped as a Lambda layer, because the
 emulator attaches a layer without making its contents importable.
 
+## The live run
+
+The console's **Live run** view is genuinely live. An email typed into it is submitted to
+the deployed API, recorded, and announced on the event bus; a host worker picks it up and
+processes it with the real model-backed planner through the same tools, enforcement point
+and policies as everything else. The verdict shown is the one the enforcement point
+recorded, and the steps appear over the same WebSocket the gateway feeds.
+
+Two parts of it are simulated, and neither is load-bearing:
+
+- **The DKIM result.** A typed-in address has no signature to verify, so it passes only
+  when the sender's domain is exactly a vendor's registered domain. That is what a real
+  check would return for a genuine sender, and it makes a lookalike domain fail. It feeds
+  `vendorMatchVerified`, which a human can override; the account rule, which nobody can
+  override, does not consult it.
+- **The vendor master and ledger** are the same fixtures as everywhere else.
+
+The rest of the console still renders a recorded run. Live run and Approvals talk to the
+deployed API; Run, Split replay, Bench, Lineage, Evidence and Policies do not.
+
 ## The models
 
 Both the planner and the reader run on a local open-weight model through Ollama. On the
