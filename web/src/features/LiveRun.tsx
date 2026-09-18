@@ -8,10 +8,16 @@
  * The waiting state shows the steps as they happen and no clock. A duration on screen
  * would contradict the footage once it is sped up in editing, and the activity feed
  * already makes it obvious the run is progressing.
+ *
+ * A run outlives this component. Switching tabs unmounts it, and the run keeps going on
+ * the server, so the id and the steps so far are kept in sessionStorage and restored on
+ * mount. Without that the page forgets a run it started and looks like nothing happened,
+ * which invites a second submission of the same email.
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { getRun, isSignedIn, login, submitRun } from "../lib/api";
+import { ApiError, getRun, isSignedIn, login, submitRun } from "../lib/api";
+import type { LiveEvent } from "../lib/useLiveEvents";
 import { useLiveEvents } from "../lib/useLiveEvents";
 
 const GATEWAY: string =
@@ -19,6 +25,41 @@ const GATEWAY: string =
   "ws://127.0.0.1:8787/events";
 
 type Phase = "idle" | "submitting" | "running" | "done" | "error";
+
+const SAVED = "hallmark.liveRun";
+
+interface Saved {
+  runId?: string;
+  phase: Phase;
+  feed: LiveEvent[];
+  verdict: Verdict | null;
+}
+
+interface Verdict {
+  verdict?: string;
+  reasonCode?: string;
+  policies?: string[];
+}
+
+/** Restore an in-flight run. Storage can throw or hold nonsense; neither may break the page. */
+function restore(): Saved | null {
+  try {
+    const raw = sessionStorage.getItem(SAVED);
+    if (!raw) return null;
+    const saved = JSON.parse(raw) as Saved;
+    return saved && typeof saved.phase === "string" ? saved : null;
+  } catch {
+    return null;
+  }
+}
+
+function remember(saved: Saved): void {
+  try {
+    sessionStorage.setItem(SAVED, JSON.stringify(saved));
+  } catch {
+    // A full or blocked store is not worth failing a run over.
+  }
+}
 
 const SAMPLES: { id: string; label: string; hint: string; value: Sample }[] = [
   {
@@ -137,22 +178,41 @@ const VERDICT_COPY: Record<
 };
 
 export function LiveRun() {
+  const saved = useMemo(restore, []);
+
   const [form, setForm] = useState<Sample>(SAMPLES[0]!.value);
-  const [phase, setPhase] = useState<Phase>("idle");
-  const [runId, setRunId] = useState<string | undefined>(undefined);
+  const [phase, setPhase] = useState<Phase>(saved?.phase ?? "idle");
+  const [runId, setRunId] = useState<string | undefined>(saved?.runId);
   const [message, setMessage] = useState<string>("");
-  const [verdict, setVerdict] = useState<{
-    verdict?: string;
-    reasonCode?: string;
-    policies?: string[];
-  } | null>(null);
+  const [verdict, setVerdict] = useState<Verdict | null>(
+    saved?.verdict ?? null,
+  );
+
+  // Steps seen before this component was last unmounted. The socket only carries what
+  // arrives from now on, so without these the feed would restart empty mid-run.
+  const [earlier, setEarlier] = useState<LiveEvent[]>(saved?.feed ?? []);
 
   const { events, state, clear } = useLiveEvents(GATEWAY, runId);
   const pollRef = useRef<number | undefined>(undefined);
 
+  const feed = useMemo(() => {
+    const seen = new Set<string>();
+    return [...events, ...earlier].filter((event) => {
+      const key = `${event.type}|${event.at}|${JSON.stringify(event.payload)}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }, [events, earlier]);
+
+  // Persist whenever anything worth restoring changes.
+  useEffect(() => {
+    remember({ runId, phase, feed, verdict });
+  }, [runId, phase, feed, verdict]);
+
   const completion = useMemo(
-    () => events.find((event) => event.type === "RunCompleted"),
-    [events],
+    () => feed.find((event) => event.type === "RunCompleted"),
+    [feed],
   );
 
   // Finish on the event if it arrives; poll as a fallback, because a dropped socket
@@ -169,7 +229,7 @@ export function LiveRun() {
     pollRef.current = window.setInterval(() => {
       void getRun(runId)
         .then((status) => {
-          if (status.status === "COMPLETED" || status.status === "FAILED") {
+          if (status.status !== "QUEUED" && status.status !== "RUNNING") {
             setVerdict(status.summary);
             setPhase("done");
           }
@@ -180,10 +240,37 @@ export function LiveRun() {
     return () => window.clearInterval(pollRef.current);
   }, [runId, phase, completion]);
 
+  // A run can finish while this view is unmounted, and the completion event is then
+  // missed entirely. Ask once on mount rather than waiting a poll interval to notice.
+  useEffect(() => {
+    if (!runId || phase !== "running") return;
+    void getRun(runId)
+      .then((status) => {
+        if (status.status !== "QUEUED" && status.status !== "RUNNING") {
+          setVerdict(status.summary);
+          setPhase("done");
+        }
+      })
+      .catch((error: unknown) => {
+        // A run the API has never heard of is a leftover from a recreated stack. Clearing
+        // it matters: the alternative is a page that says Processing forever about
+        // something that will never finish. Any other failure is left alone, because a
+        // transient one must not discard a run that is genuinely in flight.
+        if (error instanceof ApiError && error.status === 404) {
+          setPhase("idle");
+          setRunId(undefined);
+          setEarlier([]);
+        }
+      });
+    // Deliberately on mount only: the interval below covers the rest.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const submit = async () => {
     setPhase("submitting");
     setMessage("");
     setVerdict(null);
+    setEarlier([]);
     clear();
 
     try {
@@ -405,14 +492,14 @@ export function LiveRun() {
           )}
 
           <h3>Activity</h3>
-          {events.length === 0 ? (
+          {feed.length === 0 ? (
             <p style={{ color: "var(--ink-2)" }}>
               Waiting for the first step. If nothing appears, check the gateway
               and worker are running.
             </p>
           ) : (
             <ol style={{ paddingLeft: 18, fontSize: 14 }}>
-              {[...events].reverse().map((event, index) => (
+              {[...feed].reverse().map((event, index) => (
                 <li key={`${event.at}-${index}`} style={{ marginBottom: 4 }}>
                   <span
                     style={{ fontFamily: "var(--font-mono)", fontSize: 13 }}
