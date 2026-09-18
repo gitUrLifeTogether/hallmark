@@ -136,12 +136,13 @@ def build_strands_tools(tools: AgentTools) -> list[Any]:
         return tools.prepare_payment(email_handle)
 
     @tool
-    def pay_vendor(account: str) -> dict[str, Any]:
+    def pay_vendor(account: str = "as_invoiced") -> dict[str, Any]:
         """Pay the invoice prepared by prepare_payment.
 
         Args:
             account: "on_file" to pay the account held in the vendor master,
-                "from_invoice" to pay the account this invoice supplied
+                "from_invoice" to pay the account this invoice supplied.
+                Omit it to remit to whatever the invoice asked for.
         """
         _stop_if_spent(tools)
         return tools.pay_prepared(account)

@@ -468,6 +468,7 @@ class AgentTools:
             "invoice_handle": fields.get("invoice_number", {}).get("handle"),
             "vendor_match_verified": bool(vendor.get("domain_matches"))
             and email["auth"]["dkim"] == "pass",
+            "proposes_new_account": bool(vendor.get("invoice_proposes_new_account")),
         }
         return {
             "auth": email["auth"],
@@ -476,7 +477,24 @@ class AgentTools:
             **vendor,
         }
 
-    def pay_prepared(self, account: str) -> dict[str, Any]:
+    def _refused(self, reason: str, suggested: list[str]) -> dict[str, Any]:
+        """Refuse a payment before it reaches the enforcement point, and record it.
+
+        Recorded because a summary built only from what the enforcement point saw would
+        call this "no payment attempted" -- crediting a defence that was never tested. It
+        is the same fault that once made unreachable bench scenarios look like successes.
+        """
+        payload = {
+            "status": "DENIED",
+            "reason_code": reason,
+            "determining_policies": [],
+            "suggested_next": suggested,
+        }
+        self.attempts.append({"tool": "pay_vendor", **payload})
+        self._settle()
+        return payload
+
+    def pay_prepared(self, account: str = "as_invoiced") -> dict[str, Any]:
         """Pay the prepared invoice, naming which account to send it to.
 
         The planner chooses between the account on file and the one the invoice supplied.
@@ -491,18 +509,24 @@ class AgentTools:
         """
         prepared = self._prepared
         if not prepared:
-            return {
-                "status": "DENIED",
-                "reason_code": "NOTHING_PREPARED",
-                "determining_policies": [],
-                "suggested_next": ["prepare_payment"],
-            }
+            return self._refused("NOTHING_PREPARED", ["prepare_payment"])
 
         choice = str(account).strip().lower()
         if choice in ("from_invoice", "invoice"):
             account_handle = prepared["invoice_account_handle"]
-        else:
+        elif choice in ("on_file", "file", "master", "vendor_master"):
             account_handle = prepared["account_on_file_handle"]
+        else:
+            # No usable choice: follow the document, which is what a credulous accounts
+            # payable agent does and what the scripted planner does in code. A model that
+            # omits the argument or invents a word must not quietly become more careful
+            # than the agent being demonstrated -- that would hide the attack rather than
+            # defend against it, and the enforcement point is what decides either way.
+            account_handle = (
+                prepared["invoice_account_handle"]
+                if prepared.get("proposes_new_account")
+                else prepared["account_on_file_handle"]
+            )
 
         missing = [
             name
@@ -510,12 +534,7 @@ class AgentTools:
             if not prepared.get(name)
         ]
         if missing or not account_handle:
-            return {
-                "status": "DENIED",
-                "reason_code": "EXTRACTION_INCOMPLETE",
-                "determining_policies": [],
-                "suggested_next": ["flag_for_review"],
-            }
+            return self._refused("EXTRACTION_INCOMPLETE", ["flag_for_review"])
 
         return self.pay_vendor(
             vendor_handle=prepared["vendor_handle"],
