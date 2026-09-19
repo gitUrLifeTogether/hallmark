@@ -183,40 +183,6 @@ const VERDICT_COPY: Record<
   },
 };
 
-/** Names the planner that produced what is on screen, in the run's own words. */
-function PlannerBadge({ label }: { label: string }) {
-  const scripted = label.toLowerCase().includes("scripted");
-  return (
-    <div
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        gap: 8,
-        padding: "5px 11px",
-        marginBottom: 16,
-        borderRadius: 999,
-        border: `1px solid ${scripted ? "var(--rule)" : "var(--trusted)"}`,
-        background: scripted ? "var(--surface-2)" : "var(--trusted-soft)",
-        color: scripted ? "var(--ink-2)" : "var(--trusted)",
-        fontSize: 13,
-      }}
-    >
-      <span
-        aria-hidden
-        style={{
-          width: 7,
-          height: 7,
-          borderRadius: "50%",
-          background: scripted ? "var(--ink-3)" : "var(--trusted)",
-        }}
-      />
-      <span>
-        Planner: <strong style={{ fontWeight: 600 }}>{label}</strong>
-      </span>
-    </div>
-  );
-}
-
 /* Field marks, drawn at the lineage graph's stroke weight rather than pulled from an icon
  * set. Six shapes is not worth a dependency, and an imported set would not match. */
 const fieldStroke = {
@@ -361,20 +327,6 @@ export function LiveRun() {
     });
   }, [events, earlier]);
 
-  // Which planner produced what is on screen. It arrives on RunStarted and again with the
-  // result, and is shown rather than narrated: a console silent about it would leave the
-  // honesty of the demonstration resting on whoever happens to be describing it.
-  const planner = useMemo(() => {
-    const announced = feed.find(
-      (event) => typeof event.payload?.plannerLabel === "string",
-    );
-    return (
-      (announced?.payload.plannerLabel as string | undefined) ??
-      verdict?.plannerLabel ??
-      null
-    );
-  }, [feed, verdict]);
-
   // Persist whenever anything worth restoring changes.
   useEffect(() => {
     remember({ runId, phase, feed, verdict });
@@ -509,8 +461,6 @@ export function LiveRun() {
           </div>
           <SealedInvoice width={240} />
         </div>
-
-        {planner && <PlannerBadge label={planner} />}
 
         {/* The two things most people want to try, offered as choices rather than as
          * buttons that fill a form. The outcome each should reach is written on the card,
