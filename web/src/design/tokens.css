@@ -33,25 +33,37 @@
   --radius-sm: 6px;
   --radius-md: 10px;
   --radius-lg: 14px;
-  --shadow-1:
-    0 1px 2px rgba(21, 25, 28, 0.06), 0 4px 16px rgba(21, 25, 28, 0.06);
-
   /* Elevation, in four steps rather than one. A card that lifts under the cursor needs
    * somewhere to lift to, and a modal needs to sit clearly above the page behind it.
-   * Each step raises the spread and softens the blur, so height reads as distance from
-   * the page rather than as a darker edge. */
+   *
+   * These are tuned for a light ground, where shadow behaves quite differently than on a
+   * dark one. On dark, a shadow works by deepening black and a single soft layer reads
+   * clearly. On light it has almost nowhere to go: the first version used six to eight
+   * per cent and simply disappeared, which is what made light mode look flat beside dark.
+   *
+   * Each step is therefore three layers rather than one -- a tight contact shadow that
+   * anchors the element to the page, a mid shadow that gives it height, and a wide faint
+   * one that suggests the light source. It is the contact layer that does most of the
+   * work: without it a card floats with nothing beneath it, which reads as a cutout
+   * rather than as paper. */
+  --shadow-1:
+    0 1px 1px rgba(21, 25, 28, 0.06), 0 2px 4px rgba(21, 25, 28, 0.06),
+    0 4px 10px rgba(21, 25, 28, 0.04);
   --shadow-2:
-    0 2px 4px rgba(21, 25, 28, 0.07), 0 8px 24px rgba(21, 25, 28, 0.08);
+    0 1px 2px rgba(21, 25, 28, 0.08), 0 4px 8px rgba(21, 25, 28, 0.08),
+    0 10px 22px rgba(21, 25, 28, 0.06);
   --shadow-3:
-    0 4px 8px rgba(21, 25, 28, 0.08), 0 16px 40px rgba(21, 25, 28, 0.12);
+    0 2px 4px rgba(21, 25, 28, 0.1), 0 8px 18px rgba(21, 25, 28, 0.11),
+    0 20px 42px rgba(21, 25, 28, 0.09);
   --shadow-4:
-    0 8px 16px rgba(21, 25, 28, 0.1), 0 28px 64px rgba(21, 25, 28, 0.18);
+    0 4px 8px rgba(21, 25, 28, 0.12), 0 16px 32px rgba(21, 25, 28, 0.14),
+    0 34px 70px rgba(21, 25, 28, 0.12);
 
   /* A hallmark is a stamp struck into silver, so the one metallic note in the palette is
    * reserved for the moments that are literally that: a verdict stamped onto a decision,
    * a review a person has signed off. Used anywhere else it stops meaning anything. */
-  --accent-gold: #9a7b3f;
-  --accent-gold-soft: #f2e9d6;
+  --accent-gold: #8a6a2e;
+  --accent-gold-soft: #f3ead7;
 
   /* Textures are drawn, never photographed: ruled ledger paper where runs are recorded,
    * and a drafting grid where the system is measured. Both sit at a few per cent opacity

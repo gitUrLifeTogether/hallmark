@@ -18,6 +18,7 @@ import { Bench } from "./features/Bench";
 import { SplitReplay } from "./features/SplitReplay";
 import { LineageGraph } from "./components/LineageGraph";
 import { SafeEmailViewer } from "./components/SafeEmailViewer";
+import { SealedInvoice } from "./components/SealedInvoice";
 import {
   ATTACK_EMAIL,
   DECISIONS,
@@ -226,11 +227,31 @@ export default function App() {
           </h1>
           <ThemeToggle theme={theme} onChange={setTheme} />
         </div>
-        <p style={{ margin: 0, color: "var(--ink-2)", maxWidth: 660 }}>
-          Every value an agent handles carries a record of where it came from.
-          Before a payment executes, a policy checks not only what the agent is
-          doing, but where each argument came from.
-        </p>
+        <div
+          style={{
+            display: "flex",
+            gap: 24,
+            alignItems: "center",
+            flexWrap: "wrap-reverse",
+          }}
+        >
+          <p
+            style={{
+              margin: 0,
+              color: "var(--ink-2)",
+              maxWidth: 560,
+              flex: "1 1 320px",
+            }}
+          >
+            Every value an agent handles carries a record of where it came from.
+            Before a payment executes, a policy checks not only what the agent
+            is doing, but where each argument came from.
+          </p>
+          <SealedInvoice
+            width={208}
+            title="An invoice sealed with a hallmark, over the untrusted envelope it arrived in"
+          />
+        </div>
       </header>
 
       <nav
