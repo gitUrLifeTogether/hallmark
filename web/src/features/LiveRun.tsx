@@ -476,6 +476,7 @@ export function LiveRun() {
           <div>
             <button
               type="button"
+              className="hm-primary"
               onClick={() => void submit()}
               disabled={busy || !form.body}
             >

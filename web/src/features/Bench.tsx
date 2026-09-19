@@ -9,6 +9,7 @@
  * this grid does not measure is model behaviour: both runs are deterministic.
  */
 
+import { BenchBars } from "../components/BenchBars";
 import { BENCH_ROWS, BENCH_SUMMARY, type BenchRow } from "../lib/benchData";
 
 function Outcome({ succeeded }: { succeeded: boolean }) {
@@ -39,7 +40,7 @@ export function Bench() {
   }
 
   return (
-    <section style={{ display: "grid", gap: 18 }}>
+    <section className="hm-blueprint" style={{ display: "grid", gap: 18 }}>
       <div style={{ display: "grid", gap: 6 }}>
         <h2 style={{ margin: 0, fontSize: 21, fontWeight: 600 }}>
           Attack bench
@@ -100,6 +101,20 @@ export function Bench() {
             legitimate invoices still paid
           </span>
         </div>
+      </div>
+
+      {/* Two readings of one result: the bars answer "did it work", the table below says
+       * what happened in each of the twenty-four scenarios. */}
+      <div
+        style={{
+          background: "var(--surface)",
+          border: "1px solid var(--rule)",
+          borderRadius: "var(--radius-lg)",
+          padding: 20,
+          boxShadow: "var(--shadow-1)",
+        }}
+      >
+        <BenchBars />
       </div>
 
       {[...byClass.entries()].map(([label, rows]) => (

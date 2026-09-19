@@ -264,6 +264,7 @@ export function Approvals() {
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
               <button
                 type="button"
+                className="hm-primary"
                 onClick={() => void decide(approval, "APPROVE")}
                 style={{
                   padding: "6px 14px",

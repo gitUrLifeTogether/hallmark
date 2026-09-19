@@ -12,6 +12,7 @@
 import { useEffect, useState } from "react";
 import { DecisionCard } from "./components/DecisionCard";
 import { Approvals } from "./features/Approvals";
+import { HowItWorks } from "./features/HowItWorks";
 import { LiveRun } from "./features/LiveRun";
 import { Bench } from "./features/Bench";
 import { SplitReplay } from "./features/SplitReplay";
@@ -31,6 +32,7 @@ import type { Theme } from "./lib/theme";
 import { formatPaise } from "./lib/types";
 
 type View =
+  | "how"
   | "live"
   | "run"
   | "replay"
@@ -41,6 +43,7 @@ type View =
   | "policies";
 
 const TABS: { id: View; label: string }[] = [
+  { id: "how", label: "How it works" },
   { id: "live", label: "Live run" },
   { id: "run", label: "Run" },
   { id: "replay", label: "Split replay" },
@@ -257,10 +260,12 @@ export default function App() {
         ))}
       </nav>
 
+      {view === "how" && <HowItWorks />}
+
       {view === "live" && <LiveRun />}
 
       {view === "run" && (
-        <section style={{ display: "grid", gap: 20 }}>
+        <section className="hm-paper" style={{ display: "grid", gap: 20 }}>
           <RunSource live={live !== null} planner={live?.plannerLabel} />
           <div
             className="hm-card"
@@ -379,7 +384,7 @@ export default function App() {
       {view === "approvals" && <Approvals />}
 
       {view === "policies" && (
-        <section style={{ display: "grid", gap: 12 }}>
+        <section className="hm-blueprint" style={{ display: "grid", gap: 12 }}>
           {POLICIES.map((policy) => (
             <article
               key={policy.id}

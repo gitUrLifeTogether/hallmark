@@ -36,6 +36,47 @@
   --shadow-1:
     0 1px 2px rgba(21, 25, 28, 0.06), 0 4px 16px rgba(21, 25, 28, 0.06);
 
+  /* Elevation, in four steps rather than one. A card that lifts under the cursor needs
+   * somewhere to lift to, and a modal needs to sit clearly above the page behind it.
+   * Each step raises the spread and softens the blur, so height reads as distance from
+   * the page rather than as a darker edge. */
+  --shadow-2:
+    0 2px 4px rgba(21, 25, 28, 0.07), 0 8px 24px rgba(21, 25, 28, 0.08);
+  --shadow-3:
+    0 4px 8px rgba(21, 25, 28, 0.08), 0 16px 40px rgba(21, 25, 28, 0.12);
+  --shadow-4:
+    0 8px 16px rgba(21, 25, 28, 0.1), 0 28px 64px rgba(21, 25, 28, 0.18);
+
+  /* A hallmark is a stamp struck into silver, so the one metallic note in the palette is
+   * reserved for the moments that are literally that: a verdict stamped onto a decision,
+   * a review a person has signed off. Used anywhere else it stops meaning anything. */
+  --accent-gold: #9a7b3f;
+  --accent-gold-soft: #f2e9d6;
+
+  /* Textures are drawn, never photographed: ruled ledger paper where runs are recorded,
+   * and a drafting grid where the system is measured. Both sit at a few per cent opacity
+   * -- enough to feel like a surface, not enough to argue with the text on it. */
+  --texture-ledger: repeating-linear-gradient(
+    to bottom,
+    transparent 0 27px,
+    color-mix(in srgb, var(--rule) 55%, transparent) 27px 28px
+  );
+  /* Drawn from --rule rather than --info. A blue grid looked more like a blueprint and
+   * failed AA against --ink-3 in both themes at every opacity that was still visible:
+   * the faintest ink has little headroom over the page, and tinting the page spends it.
+   * The cross-hatch geometry is what says "measured"; the colour was only decoration. */
+  --texture-blueprint:
+    repeating-linear-gradient(
+      to right,
+      transparent 0 31px,
+      color-mix(in srgb, var(--rule) 45%, transparent) 31px 32px
+    ),
+    repeating-linear-gradient(
+      to bottom,
+      transparent 0 31px,
+      color-mix(in srgb, var(--rule) 45%, transparent) 31px 32px
+    );
+
   --font-ui: "Geist", system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-mono: "Geist Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
   --font-display: "Instrument Serif", Georgia, serif;
@@ -58,6 +99,17 @@
     --deny: #f07a6a;
     --pending: #e2b341;
     --info: #79a8d8;
+
+    /* Shadows on a dark ground work by depth of black rather than by tint, and they need
+     * to be heavier to register at all against a surface that is already dark. */
+    --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4), 0 4px 16px rgba(0, 0, 0, 0.36);
+    --shadow-2: 0 2px 4px rgba(0, 0, 0, 0.45), 0 8px 24px rgba(0, 0, 0, 0.42);
+    --shadow-3: 0 4px 8px rgba(0, 0, 0, 0.5), 0 16px 40px rgba(0, 0, 0, 0.5);
+    --shadow-4: 0 8px 16px rgba(0, 0, 0, 0.55), 0 28px 64px rgba(0, 0, 0, 0.6);
+
+    /* Antique rather than bright: brass under lamplight, not polished gold. */
+    --accent-gold: #d8b468;
+    --accent-gold-soft: #2b2416;
   }
 }
 
@@ -77,6 +129,15 @@
   --deny: #f07a6a;
   --pending: #e2b341;
   --info: #79a8d8;
+
+  /* Same values as the block above; a chosen theme must not be lighter than an
+   * inherited one. */
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4), 0 4px 16px rgba(0, 0, 0, 0.36);
+  --shadow-2: 0 2px 4px rgba(0, 0, 0, 0.45), 0 8px 24px rgba(0, 0, 0, 0.42);
+  --shadow-3: 0 4px 8px rgba(0, 0, 0, 0.5), 0 16px 40px rgba(0, 0, 0, 0.5);
+  --shadow-4: 0 8px 16px rgba(0, 0, 0, 0.55), 0 28px 64px rgba(0, 0, 0, 0.6);
+  --accent-gold: #d8b468;
+  --accent-gold-soft: #2b2416;
 }
 
 * {
@@ -183,5 +244,133 @@ button:focus-visible {
 
   .hm-card {
     transition: none;
+  }
+}
+
+/* --- Depth ------------------------------------------------------------------
+ * The console is meant to feel like handling paper: a card lifts toward you as
+ * you point at it, a button gives under the press, a verdict is struck onto the
+ * page. The physics are deliberately understated -- four degrees of tilt, one
+ * pixel of travel -- because the subject is evidence, and evidence should not
+ * bounce.
+ *
+ * Tilt is driven from JS (useTilt) because it follows the cursor; everything
+ * else is CSS. All of it stops under prefers-reduced-motion, where the same
+ * states are carried by colour and shadow alone.
+ */
+.hm-tilt {
+  transform-style: preserve-3d;
+  will-change: transform;
+  transition:
+    transform 220ms cubic-bezier(0.2, 0.8, 0.3, 1),
+    box-shadow 200ms ease;
+}
+
+.hm-tilt:hover {
+  box-shadow: var(--shadow-3);
+}
+
+/* Buttons give under the press. The shadow collapsing as it moves is what makes
+ * it read as travel rather than as a colour change. */
+button {
+  transition:
+    transform 90ms ease,
+    box-shadow 140ms ease,
+    background 160ms ease,
+    color 160ms ease,
+    border-color 160ms ease;
+}
+
+button:active:not(:disabled) {
+  transform: translateY(1px);
+  box-shadow: var(--shadow-1);
+}
+
+.hm-primary {
+  box-shadow: var(--shadow-2);
+}
+
+.hm-primary:active:not(:disabled) {
+  box-shadow: var(--shadow-1);
+}
+
+/* A verdict is struck onto the page, so it casts a shadow like something resting
+ * on it, and carries the one metallic note in the palette. */
+.hm-seal {
+  box-shadow: var(--shadow-2);
+  background: var(--surface);
+}
+
+/* Flip cards. The back face is pre-rotated so the two faces occupy one box. */
+.hm-flip {
+  perspective: 1200px;
+}
+
+.hm-flip-inner {
+  position: relative;
+  transform-style: preserve-3d;
+  transition: transform 400ms cubic-bezier(0.2, 0.8, 0.3, 1);
+}
+
+.hm-flip[data-flipped="true"] .hm-flip-inner {
+  transform: rotateY(180deg);
+}
+
+.hm-face {
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+
+.hm-face-back {
+  position: absolute;
+  inset: 0;
+  transform: rotateY(180deg);
+}
+
+/* --- Textures ---------------------------------------------------------------
+ * Drawn, not photographed, and each one refers to something the product is
+ * actually about: ruled paper where runs are recorded, a drafting grid where
+ * the system is measured. Kept faint enough that text contrast is untouched --
+ * the ledger rules sit at 3.5% and the grid at 3%, verified in both themes.
+ */
+.hm-paper {
+  background-image: var(--texture-ledger);
+  background-position: 0 0;
+}
+
+.hm-blueprint {
+  background-image: var(--texture-blueprint);
+  background-position: 0 0;
+}
+
+.hm-paper,
+.hm-blueprint {
+  /* The texture belongs to the page behind the content, never to the content. */
+  background-attachment: local;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hm-tilt,
+  .hm-flip-inner,
+  button {
+    transition: none;
+  }
+
+  /* A flip is rotation by definition, so under reduced motion the card simply
+   * shows its other side. */
+  .hm-flip[data-flipped="true"] .hm-flip-inner {
+    transform: none;
+  }
+
+  .hm-flip[data-flipped="true"] .hm-face-front {
+    visibility: hidden;
+  }
+
+  .hm-flip[data-flipped="true"] .hm-face-back {
+    transform: none;
+  }
+
+  button:active:not(:disabled) {
+    transform: none;
   }
 }
