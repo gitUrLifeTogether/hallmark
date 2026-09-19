@@ -64,7 +64,8 @@ why a payment looks suspicious and then makes it has defended nothing.
 
 Full results, per scenario and per class: **[docs/bench-results.md](docs/bench-results.md)**.
 Read the "what this does not measure" section before quoting the numbers — most importantly,
-both runs are deterministic and say nothing about how a language model behaves.
+both runs follow a fixed procedure rather than a language model, so they measure the
+enforcement layer and say nothing about how a model behaves.
 
 ### On the hero inbox
 
@@ -156,10 +157,11 @@ machine with no discrete GPU. A larger planner model would raise utility and cha
 about the guarantee — the labels, the enforcement point, the policies and the canary test
 hold with any model, which is the point of not putting security in the model.
 
-**The bench numbers do not involve a model at all**; both configurations are driven by a
-deterministic planner, so they measure the enforcement layer rather than model behaviour. A
-separate model-backed run is recorded in [docs/decisions.md](docs/decisions.md) — in it the
-planner *was* fooled, attempted the payment, and was refused.
+**The bench numbers do not involve a model at all.** Both configurations follow the same
+fixed procedure through the same tools, so what they measure is the enforcement layer, not
+model behaviour. A separate model-backed run is recorded in
+[docs/decisions.md](docs/decisions.md) — in it the agent *was* fooled, attempted the
+payment, and was refused.
 
 ## Running it
 
@@ -205,7 +207,7 @@ them:
 
 Sources and links: **[docs/sources.md](docs/sources.md)**.
 
-## What we claim, and what we do not
+## What I claim, and what I do not
 
 **Claimed, and demonstrated:**
 
@@ -234,7 +236,7 @@ unprotected agent actually attempts every scenario. The number barely moved; the
 behind it changed completely.
 
 **Tests can pass for the wrong reason.** The first acceptance test was green and worthless
-— the scripted planner always used the vendor-master account, so the enforcement point
+— the procedure it ran always used the vendor-master account, so the enforcement point
 never once received an untrusted one. And all seven realtime gateway tests passed because
 the fake socket was hashable, while the real one is not. Both had to fail before they were
 worth anything.
