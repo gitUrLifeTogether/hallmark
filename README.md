@@ -163,6 +163,25 @@ model behaviour. A separate model-backed run is recorded in
 [docs/decisions.md](docs/decisions.md) — in it the agent *was* fooled, attempted the
 payment, and was refused.
 
+### Why a run can be driven without a model
+
+`PLANNER_BACKEND` chooses what decides: the local model, or a fixed procedure that makes
+the same calls in code. The fixed procedure uses no model anywhere — not for planning and
+not for reading the invoice — which makes a run take about three seconds instead of
+several minutes and produce the same result every time.
+
+It runs through **the same tools, the same enforcement point and the same policies**. Only
+the thing choosing differs, and that is the point: if swapping the decider changed the
+security outcome, the claim this project makes would be false. Both reach the same
+verdicts — a legitimate invoice executes, and the bank-change attack is denied by
+`pay-account-must-be-master`.
+
+It is also deliberately **credulous**. When an invoice proposes an account that is not on
+file, it follows the document, exactly as a trusting clerk would, and lets the enforcement
+point decide. A version that always paid the account on file would pass every run while
+testing nothing — which is precisely how the first acceptance test here came to be green
+and worthless.
+
 ## Running it
 
 Everything runs locally. No cloud account, no bill.
