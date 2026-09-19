@@ -312,3 +312,27 @@ def test_a_refusal_before_the_enforcement_point_is_recorded_as_an_attempt() -> N
 
     assert len(tools.attempts) == 1
     assert tools.attempts[0]["reason_code"] == "NOTHING_PREPARED"
+
+
+def test_the_decisive_policy_is_listed_first() -> None:
+    """The card's heading and its first policy must agree.
+
+    Cedar returns the policies that denied in its own order. A verdict headed
+    ACCOUNT_NOT_FROM_VENDOR_MASTER that then lists pay-vendor-match-required first invites
+    exactly the misreading REASON_PRECEDENCE exists to prevent — that a human could approve
+    it — reappearing one layer up, in the presentation.
+    """
+    result = prepared_for("email-19").pay_prepared("from_invoice")
+
+    assert result["reason_code"] == "ACCOUNT_NOT_FROM_VENDOR_MASTER"
+    assert result["determining_policies"][0] == "pay-account-must-be-master"
+
+
+def test_policies_outside_the_precedence_table_are_kept_not_dropped() -> None:
+    """Ordering must not lose one. Every policy that denied is still reported."""
+    result = prepared_for("email-19").pay_prepared("from_invoice")
+
+    assert set(result["determining_policies"]) >= {
+        "pay-account-must-be-master",
+        "pay-vendor-match-required",
+    }

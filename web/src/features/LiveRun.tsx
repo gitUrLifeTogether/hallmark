@@ -19,6 +19,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { ApiError, getRun, isSignedIn, login, submitRun } from "../lib/api";
 import type { RunDetail } from "../lib/liveStore";
 import { setLiveRun } from "../lib/liveStore";
+import { SealedInvoice } from "../components/SealedInvoice";
+import { TiltCard } from "../components/TiltCard";
 import type { LiveEvent } from "../lib/useLiveEvents";
 import { useLiveEvents } from "../lib/useLiveEvents";
 
@@ -181,37 +183,119 @@ const VERDICT_COPY: Record<
   },
 };
 
-/** Names the planner that produced what is on screen, in the run's own words. */
-function PlannerBadge({ label }: { label: string }) {
-  const scripted = label.toLowerCase().includes("scripted");
+/* Field marks, drawn at the lineage graph's stroke weight rather than pulled from an icon
+ * set. Six shapes is not worth a dependency, and an imported set would not match. */
+const fieldStroke = {
+  fill: "none",
+  stroke: "currentColor",
+  strokeWidth: 1.6,
+  strokeLinecap: "round" as const,
+  strokeLinejoin: "round" as const,
+};
+
+const ICONS = {
+  from: (
+    <svg viewBox="0 0 24 24" width="15" height="15" {...fieldStroke}>
+      <rect x="3" y="5" width="18" height="14" rx="2" />
+      <path d="M3 7l9 6 9-6" />
+    </svg>
+  ),
+  subject: (
+    <svg viewBox="0 0 24 24" width="15" height="15" {...fieldStroke}>
+      <path d="M4 12l8-8h8v8l-8 8z" />
+      <circle cx="16" cy="8" r="1.3" />
+    </svg>
+  ),
+  body: (
+    <svg viewBox="0 0 24 24" width="15" height="15" {...fieldStroke}>
+      <rect x="4" y="3" width="16" height="18" rx="2" />
+      <path d="M8 8h8M8 12h8M8 16h5" />
+    </svg>
+  ),
+  attachment: (
+    <svg viewBox="0 0 24 24" width="15" height="15" {...fieldStroke}>
+      <path d="M21 11l-8.5 8.5a5 5 0 0 1-7-7L14 4a3.5 3.5 0 0 1 5 5l-8.5 8.5a2 2 0 0 1-3-3L15 6" />
+    </svg>
+  ),
+  legit: (
+    <svg viewBox="0 0 24 24" width="22" height="22" {...fieldStroke}>
+      <rect x="4" y="3" width="16" height="18" rx="2" />
+      <path d="M8 9h8M8 13h6M9 17l2 2 4-4" />
+    </svg>
+  ),
+  attack: (
+    <svg viewBox="0 0 24 24" width="22" height="22" {...fieldStroke}>
+      <rect x="3" y="5" width="18" height="14" rx="2" />
+      <path d="M3 7l9 6 9-6M12 10v5M12 17.6v.2" />
+    </svg>
+  ),
+};
+
+/** A form row: its mark, its name, and the control itself. */
+function Field({
+  label,
+  hint,
+  icon,
+  children,
+}: {
+  label: string;
+  hint?: string;
+  icon: JSX.Element;
+  children: React.ReactNode;
+}) {
   return (
-    <div
+    <label style={{ display: "grid", gap: 6 }}>
+      <span
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 7,
+          fontSize: 13,
+          fontWeight: 600,
+          color: "var(--ink-2)",
+        }}
+      >
+        <span style={{ color: "var(--trusted)", display: "flex" }}>{icon}</span>
+        {label}
+        {hint && (
+          <span style={{ fontWeight: 400, color: "var(--ink-3)" }}>
+            — {hint}
+          </span>
+        )}
+      </span>
+      {children}
+    </label>
+  );
+}
+
+/** Secondary actions, drawn so they cannot be mistaken for the primary one. */
+function GhostButton({
+  onClick,
+  disabled,
+  children,
+}: {
+  onClick: () => void;
+  disabled?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
       style={{
-        display: "inline-flex",
-        alignItems: "center",
-        gap: 8,
-        padding: "5px 11px",
-        marginBottom: 16,
-        borderRadius: 999,
-        border: `1px solid ${scripted ? "var(--rule)" : "var(--trusted)"}`,
-        background: scripted ? "var(--surface-2)" : "var(--trusted-soft)",
-        color: scripted ? "var(--ink-2)" : "var(--trusted)",
+        padding: "6px 12px",
         fontSize: 13,
+        borderRadius: "var(--radius-sm)",
+        border: "1px solid var(--rule)",
+        background: "transparent",
+        color: "var(--ink-2)",
+        boxShadow: "none",
+        cursor: disabled ? "default" : "pointer",
       }}
     >
-      <span
-        aria-hidden
-        style={{
-          width: 7,
-          height: 7,
-          borderRadius: "50%",
-          background: scripted ? "var(--ink-3)" : "var(--trusted)",
-        }}
-      />
-      <span>
-        Planner: <strong style={{ fontWeight: 600 }}>{label}</strong>
-      </span>
-    </div>
+      {children}
+    </button>
   );
 }
 
@@ -242,20 +326,6 @@ export function LiveRun() {
       return true;
     });
   }, [events, earlier]);
-
-  // Which planner produced what is on screen. It arrives on RunStarted and again with the
-  // result, and is shown rather than narrated: a console silent about it would leave the
-  // honesty of the demonstration resting on whoever happens to be describing it.
-  const planner = useMemo(() => {
-    const announced = feed.find(
-      (event) => typeof event.payload?.plannerLabel === "string",
-    );
-    return (
-      (announced?.payload.plannerLabel as string | undefined) ??
-      verdict?.plannerLabel ??
-      null
-    );
-  }, [feed, verdict]);
 
   // Persist whenever anything worth restoring changes.
   useEffect(() => {
@@ -369,50 +439,110 @@ export function LiveRun() {
       style={{ display: "grid", gap: 24, gridTemplateColumns: "minmax(0,1fr)" }}
     >
       <section>
-        <h2 style={{ marginTop: 0 }}>Send an email to the agent</h2>
-        <p style={{ color: "var(--ink-2)", maxWidth: "62ch" }}>
-          Write anything you like, including an attack. It is processed by the
-          same pipeline as every other email: a planner decides what to do, the
-          enforcement point decides what may happen, and the verdict below is
-          the one it recorded.
-        </p>
+        {/* The picture says what the page does before the words do: an invoice that
+         * arrived in an envelope nobody trusts, and the mark struck across both. */}
+        <div
+          style={{
+            display: "flex",
+            gap: 24,
+            alignItems: "center",
+            flexWrap: "wrap-reverse",
+            marginBottom: 8,
+          }}
+        >
+          <div style={{ flex: "1 1 320px", minWidth: 280 }}>
+            <h2 style={{ marginTop: 0 }}>Send an email to the agent</h2>
+            <p style={{ color: "var(--ink-2)", maxWidth: "58ch" }}>
+              Write anything you like, including an attack. It is processed by
+              the same pipeline as every other email: a planner decides what to
+              do, the enforcement point decides what may happen, and the verdict
+              below is the one it recorded.
+            </p>
+          </div>
+          <SealedInvoice width={240} />
+        </div>
 
-        {planner && <PlannerBadge label={planner} />}
+        {/* The two things most people want to try, offered as choices rather than as
+         * buttons that fill a form. The outcome each should reach is written on the card,
+         * because a demonstration whose expected result is a surprise is a poor one. */}
+        <div
+          style={{
+            display: "grid",
+            gap: 12,
+            gridTemplateColumns: "repeat(auto-fit, minmax(230px, 1fr))",
+            marginBottom: 14,
+            maxWidth: 720,
+          }}
+        >
+          {SAMPLES.map((sample) => {
+            const attack = sample.id === "bec";
+            return (
+              <TiltCard
+                key={sample.id}
+                elevation="var(--shadow-2)"
+                style={{
+                  padding: 16,
+                  borderRadius: "var(--radius-lg)",
+                  background: "var(--surface)",
+                  border: `1px solid ${attack ? "var(--untrusted)" : "var(--rule)"}`,
+                  backgroundImage: attack ? "var(--hatch)" : undefined,
+                  cursor: busy ? "default" : "pointer",
+                  display: "grid",
+                  gap: 8,
+                  alignContent: "start",
+                }}
+              >
+                <div
+                  role="button"
+                  tabIndex={busy ? -1 : 0}
+                  aria-label={`${sample.label}. ${sample.hint}`}
+                  onClick={() => !busy && setForm(sample.value)}
+                  onKeyDown={(event) => {
+                    if (!busy && (event.key === "Enter" || event.key === " ")) {
+                      event.preventDefault();
+                      setForm(sample.value);
+                    }
+                  }}
+                  style={{ display: "grid", gap: 8 }}
+                >
+                  <span
+                    style={{
+                      color: attack ? "var(--untrusted)" : "var(--trusted)",
+                      display: "flex",
+                    }}
+                  >
+                    {attack ? ICONS.attack : ICONS.legit}
+                  </span>
+                  <strong style={{ fontSize: 15, fontWeight: 600 }}>
+                    {sample.label}
+                  </strong>
+                  <span style={{ fontSize: 13, color: "var(--ink-2)" }}>
+                    {sample.hint}
+                  </span>
+                </div>
+              </TiltCard>
+            );
+          })}
+        </div>
 
         <div
           style={{
             display: "flex",
             gap: 8,
             flexWrap: "wrap",
-            marginBottom: 16,
+            marginBottom: 18,
           }}
         >
-          {SAMPLES.map((sample) => (
-            <button
-              key={sample.id}
-              type="button"
-              onClick={() => setForm(sample.value)}
-              disabled={busy}
-              title={sample.hint}
-            >
-              {sample.label}
-            </button>
-          ))}
-          <button type="button" onClick={() => setForm(EMPTY)} disabled={busy}>
+          <GhostButton onClick={() => setForm(EMPTY)} disabled={busy}>
             Clear form
-          </button>
-          <button type="button" onClick={reset} disabled={busy}>
+          </GhostButton>
+          <GhostButton onClick={reset} disabled={busy}>
             Reset result
-          </button>
+          </GhostButton>
         </div>
 
         <div style={{ display: "grid", gap: 12, maxWidth: 720 }}>
-          <label>
-            <span
-              style={{ display: "block", fontSize: 13, color: "var(--ink-2)" }}
-            >
-              From
-            </span>
+          <Field label="From" icon={ICONS.from}>
             <input
               value={form.sender}
               onChange={(e) => setForm({ ...form, sender: e.target.value })}
@@ -420,26 +550,16 @@ export function LiveRun() {
               style={{ width: "100%" }}
               placeholder="billing@suryodayametals.example"
             />
-          </label>
-          <label>
-            <span
-              style={{ display: "block", fontSize: 13, color: "var(--ink-2)" }}
-            >
-              Subject
-            </span>
+          </Field>
+          <Field label="Subject" icon={ICONS.subject}>
             <input
               value={form.subject}
               onChange={(e) => setForm({ ...form, subject: e.target.value })}
               disabled={busy}
               style={{ width: "100%" }}
             />
-          </label>
-          <label>
-            <span
-              style={{ display: "block", fontSize: 13, color: "var(--ink-2)" }}
-            >
-              Body
-            </span>
+          </Field>
+          <Field label="Body" icon={ICONS.body}>
             <textarea
               value={form.body}
               onChange={(e) => setForm({ ...form, body: e.target.value })}
@@ -451,13 +571,12 @@ export function LiveRun() {
                 fontSize: 13,
               }}
             />
-          </label>
-          <label>
-            <span
-              style={{ display: "block", fontSize: 13, color: "var(--ink-2)" }}
-            >
-              Attachment text (optional) — stands in for a PDF’s text layer
-            </span>
+          </Field>
+          <Field
+            label="Attachment text"
+            hint="optional, stands in for a PDF’s text layer"
+            icon={ICONS.attachment}
+          >
             <textarea
               value={form.attachmentText}
               onChange={(e) =>
@@ -471,11 +590,12 @@ export function LiveRun() {
                 fontSize: 13,
               }}
             />
-          </label>
+          </Field>
 
           <div>
             <button
               type="button"
+              className="hm-primary"
               onClick={() => void submit()}
               disabled={busy || !form.body}
             >

@@ -10,6 +10,7 @@
  */
 
 import { ProvenanceTag } from "../ProvenanceTag";
+import { TiltCard } from "./TiltCard";
 import { POLICIES } from "../lib/demoData";
 import type { Decision } from "../lib/types";
 
@@ -28,16 +29,21 @@ const VERDICT_COLOUR: Record<Decision["outcome"], string> = {
 function VerdictStamp({ outcome }: { outcome: Decision["outcome"] }) {
   return (
     <span
-      className="hm-stamp"
+      className="hm-stamp hm-seal"
       style={{
         fontFamily: "var(--font-display)",
         fontSize: 17,
         letterSpacing: "0.06em",
-        padding: "2px 12px",
+        padding: "3px 14px",
         display: "inline-block",
         transform: "rotate(-2deg)",
         color: VERDICT_COLOUR[outcome],
         border: `2px solid ${VERDICT_COLOUR[outcome]}`,
+        // A hallmark is struck into silver, and this is the moment the console is named
+        // after. The metallic note appears here and on a completed review, nowhere else:
+        // spend it anywhere and it stops meaning "this was stamped".
+        outline: "1px solid var(--accent-gold)",
+        outlineOffset: 2,
         borderRadius: "var(--radius-sm)",
         whiteSpace: "nowrap",
       }}
@@ -57,7 +63,9 @@ export function DecisionCard({
   const entries = Object.entries(decision.args);
 
   return (
-    <article
+    <TiltCard
+      as="article"
+      elevation="var(--shadow-2)"
       className="hm-card"
       style={{
         background: "var(--surface)",
@@ -233,6 +241,6 @@ export function DecisionCard({
           Show where these came from
         </button>
       )}
-    </article>
+    </TiltCard>
   );
 }

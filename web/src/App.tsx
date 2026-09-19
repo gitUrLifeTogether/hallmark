@@ -12,11 +12,13 @@
 import { useEffect, useState } from "react";
 import { DecisionCard } from "./components/DecisionCard";
 import { Approvals } from "./features/Approvals";
+import { HowItWorks } from "./features/HowItWorks";
 import { LiveRun } from "./features/LiveRun";
 import { Bench } from "./features/Bench";
 import { SplitReplay } from "./features/SplitReplay";
 import { LineageGraph } from "./components/LineageGraph";
 import { SafeEmailViewer } from "./components/SafeEmailViewer";
+import { SealedInvoice } from "./components/SealedInvoice";
 import {
   ATTACK_EMAIL,
   DECISIONS,
@@ -31,6 +33,7 @@ import type { Theme } from "./lib/theme";
 import { formatPaise } from "./lib/types";
 
 type View =
+  | "how"
   | "live"
   | "run"
   | "replay"
@@ -41,6 +44,7 @@ type View =
   | "policies";
 
 const TABS: { id: View; label: string }[] = [
+  { id: "how", label: "How it works" },
   { id: "live", label: "Live run" },
   { id: "run", label: "Run" },
   { id: "replay", label: "Split replay" },
@@ -223,11 +227,31 @@ export default function App() {
           </h1>
           <ThemeToggle theme={theme} onChange={setTheme} />
         </div>
-        <p style={{ margin: 0, color: "var(--ink-2)", maxWidth: 660 }}>
-          Every value an agent handles carries a record of where it came from.
-          Before a payment executes, a policy checks not only what the agent is
-          doing, but where each argument came from.
-        </p>
+        <div
+          style={{
+            display: "flex",
+            gap: 24,
+            alignItems: "center",
+            flexWrap: "wrap-reverse",
+          }}
+        >
+          <p
+            style={{
+              margin: 0,
+              color: "var(--ink-2)",
+              maxWidth: 560,
+              flex: "1 1 320px",
+            }}
+          >
+            Every value an agent handles carries a record of where it came from.
+            Before a payment executes, a policy checks not only what the agent
+            is doing, but where each argument came from.
+          </p>
+          <SealedInvoice
+            width={208}
+            title="An invoice sealed with a hallmark, over the untrusted envelope it arrived in"
+          />
+        </div>
       </header>
 
       <nav
@@ -257,10 +281,12 @@ export default function App() {
         ))}
       </nav>
 
+      {view === "how" && <HowItWorks />}
+
       {view === "live" && <LiveRun />}
 
       {view === "run" && (
-        <section style={{ display: "grid", gap: 20 }}>
+        <section className="hm-paper" style={{ display: "grid", gap: 20 }}>
           <RunSource live={live !== null} planner={live?.plannerLabel} />
           <div
             className="hm-card"
@@ -379,7 +405,7 @@ export default function App() {
       {view === "approvals" && <Approvals />}
 
       {view === "policies" && (
-        <section style={{ display: "grid", gap: 12 }}>
+        <section className="hm-blueprint" style={{ display: "grid", gap: 12 }}>
           {POLICIES.map((policy) => (
             <article
               key={policy.id}
