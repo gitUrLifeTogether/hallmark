@@ -153,7 +153,7 @@ class PolicyEnforcementPoint:
                 facts=facts,
                 allow=decision.allow,
                 outcome=str(outcome),
-                determining_policies=decision.determining_policies,
+                determining_policies=self._ordered_policies(decision),
                 reason_code=str(reason),
                 latency_ms=int((time.perf_counter() - started) * 1000),
                 created_at=self._clock.now_iso(),
@@ -221,7 +221,7 @@ class PolicyEnforcementPoint:
                     "decisionId": decision_id,
                     "tool": tool,
                     "allow": decision.allow,
-                    "determiningPolicies": list(decision.determining_policies),
+                    "determiningPolicies": list(self._ordered_policies(decision)),
                     "reasonCode": str(reason),
                     "arguments": {
                         name: {
@@ -242,6 +242,20 @@ class PolicyEnforcementPoint:
                 payload={"decisionId": decision_id, "tool": tool, "reasonCode": str(reason)},
             )
         )
+
+    @staticmethod
+    def _ordered_policies(decision: Decision) -> tuple[str, ...]:
+        """The policies that denied, most fundamental first.
+
+        Cedar returns them in its own order, which is not the order a reader needs. A card
+        headed ACCOUNT_NOT_FROM_VENDOR_MASTER that then lists `pay-vendor-match-required`
+        first invites the reader to think a human could approve it -- the exact
+        misreading REASON_PRECEDENCE exists to prevent, reappearing one layer up in the
+        presentation. The same order decides both, so the two cannot disagree.
+        """
+        fired = list(decision.determining_policies)
+        ranked = [p for p in REASON_PRECEDENCE if p in fired]
+        return tuple(ranked + [p for p in fired if p not in ranked])
 
     @staticmethod
     def _reason_for(decision: Decision, fallback: ReasonCode) -> ReasonCode:
@@ -386,7 +400,7 @@ class PolicyEnforcementPoint:
             return ToolResult(
                 ToolOutcome.EXECUTED,
                 ReasonCode.OK,
-                decision.determining_policies,
+                self._ordered_policies(decision),
                 txn_id=txn_id,
             )
 
@@ -422,7 +436,7 @@ class PolicyEnforcementPoint:
             return ToolResult(
                 ToolOutcome.PENDING_APPROVAL,
                 reason,
-                decision.determining_policies,
+                self._ordered_policies(decision),
                 approval_id=approval_id,
             )
 
@@ -432,7 +446,7 @@ class PolicyEnforcementPoint:
         return ToolResult(
             ToolOutcome.DENIED,
             reason,
-            decision.determining_policies,
+            self._ordered_policies(decision),
             suggested_next=SUGGESTED_AFTER_PAYMENT_DENIAL,
         )
 
@@ -499,7 +513,7 @@ class PolicyEnforcementPoint:
                 ReasonCode.OK,
                 started,
             )
-            return ToolResult(ToolOutcome.EXECUTED, ReasonCode.OK, decision.determining_policies)
+            return ToolResult(ToolOutcome.EXECUTED, ReasonCode.OK, self._ordered_policies(decision))
 
         hypothetical = self._authorizer.is_authorized(
             build_email_request(
@@ -523,14 +537,14 @@ class PolicyEnforcementPoint:
             return ToolResult(
                 ToolOutcome.PENDING_APPROVAL,
                 reason,
-                decision.determining_policies,
+                self._ordered_policies(decision),
                 approval_id=approval_id,
             )
 
         self._record(
             run, "send_email", args, fact_dict, decision, ToolOutcome.DENIED, reason, started
         )
-        return ToolResult(ToolOutcome.DENIED, reason, decision.determining_policies)
+        return ToolResult(ToolOutcome.DENIED, reason, self._ordered_policies(decision))
 
 
 class _ArgumentNotAHandle(Exception):
